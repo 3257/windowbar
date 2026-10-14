@@ -44,6 +44,8 @@ open build/WindowBar.app
 
 The repository is private, so cloning requires access. The build script compiles for the current Mac's architecture and creates an ad-hoc signed `build/WindowBar.app`. Quit WindowBar before rebuilding it.
 
+When launching from a coding agent or terminal that manages its child processes, use `python3 scripts/run.py`. This developer launcher starts the app in its own session with closed input and redirects output to `~/Library/Logs/WindowBar/app.log`, so closing the launching session does not stop the taskbar. It requires Python 3. For everyday use, open the app from Finder or with `open` as shown above.
+
 On first launch, click **Enable Accessibility**, then enable **WindowBar** in **System Settings → Privacy & Security → Accessibility**. If the app is missing, add `build/WindowBar.app` with the **+** button. Quit and reopen it if a changed permission is not reflected immediately. Rebuilding an ad-hoc signed app can require granting Accessibility again.
 
 To keep the app in Applications, copy `build/WindowBar.app` there and grant permission to that installed copy. Keep one copy running.
@@ -88,16 +90,20 @@ Read the [architecture notes](docs/architecture.md) and [maintainability review]
 
 ### Local desktop checks
 
-Run these on a Mac with Accessibility access, Chrome and Terminal open, and both apps pinned in the Dock. The menu and tabs checks require WindowBar running; the Dock check requires it closed.
+Run these on a Mac with Accessibility access, Chrome and Terminal open, and both apps pinned in the Dock. The menus, tabs, and terminal checks require WindowBar running; the Dock and lifetime checks require it closed.
 
 ```sh
 zsh scripts/smoke.sh menus
 zsh scripts/smoke.sh tabs
+zsh scripts/smoke.sh terminal
 # Quit WindowBar before this check:
 zsh scripts/smoke.sh dock
+zsh scripts/smoke.sh lifetime
 ```
 
-Menu and tab checks create isolated blank Chrome windows and close their own windows afterward. The menu check also enumerates every local Chrome profile and opens a window in the last-used profile. The Dock check launches, quits, and force-quits WindowBar to verify exact restoration. Failed checks exit with a nonzero status.
+Menu and tab checks create isolated blank Chrome windows and close their own windows afterward. The menu check also enumerates every local Chrome profile and opens a window in the last-used profile. The Dock check launches, quits, and force-quits WindowBar to verify exact restoration. The lifetime check closes the launching process group and verifies that the same taskbar survives for 45 seconds with Dock replacement active. Both lifecycle checks leave WindowBar closed and restore the original Dock preferences. Failed checks exit with a nonzero status.
+
+The Terminal check creates an isolated window through the pinned menu, switches from Chrome to it with a real taskbar click, checks Command-T and the pinned New Tab action, and closes its created windows and tabs by their IDs. It follows Terminal's current focused Accessibility handle because that handle can change when a new tab opens.
 
 ### Diagnostics and documentation images
 

@@ -36,6 +36,8 @@ Chrome profile metadata is an internal browser format. WindowBar reads only disp
 
 ## Validation
 
+Developer launches use `scripts/run.py` to put the app in its own process session, close inherited input, and redirect output to a local log. Running the GUI as a foreground tool child ties its lifetime to the coding host, which can terminate children when its session ends. The lifetime smoke check closes the launching process group and verifies that the same app process and Dock snapshot survive. Finder/LaunchServices launches already have an independent lifetime.
+
 Unit tests run in CI without changing desktop preferences. GUI smoke tests are local and explicit: they require a desktop, Accessibility access, Chrome, and Terminal. The Dock smoke suite launches and force-quits WindowBar; run it with WindowBar closed. Browser tests create isolated blank windows, close their own windows, and restore the previously active app. Screenshots use sample titles and sample profile names.
 
 Swift language mode is 5 for compatibility with the supported toolchain. A future Swift 6 migration should introduce explicit actor boundaries for AppKit and audited sendability of Accessibility snapshots; it should not add unchecked sendability merely to silence compiler errors.
