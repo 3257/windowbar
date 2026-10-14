@@ -1,0 +1,291 @@
+import AppKit
+import ApplicationServices
+import WindowBarCore
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var panels: [TaskbarPanel] = []
+    private var bars: [BarView] = []
+    private var statusItem: NSStatusItem?
+    private var timer: Timer?
+    private var scanning = false
+    private var entries: [WindowEntry] = []
+    private let scanner = DispatchQueue(label: "windowbar.accessibility", qos: .utility)
+    private var allDisplays = UserDefaults.standard.bool(forKey: "allDisplays")
+    private var hidden = false
+    private let demo: Bool
+    private let screenshots: Bool
+    private var backdrop: TaskbarPanel?
+    private let dock: DockReplacing
+    private let windowService: WindowDiscovering
+    private let windowActions: WindowActing
+    private let launcherMenus: LauncherMenuProviding
+    private var scanGeneration = ScanGeneration()
+
+    init(
+        demo: Bool = false, screenshots: Bool = false, dock: DockReplacing = DockController(),
+        windowService: WindowDiscovering = AccessibilityWindowService(),
+        windowActions: WindowActing = WindowActions(),
+        launcherMenus: LauncherMenuProviding = LauncherMenuBuilder()
+    ) {
+        self.demo = demo
+        self.screenshots = screenshots
+        self.dock = dock
+        self.windowService = windowService
+        self.windowActions = windowActions
+        self.launcherMenus = launcherMenus
+        super.init()
+    }
+    private var replacesDock = UserDefaults.standard.object(forKey: "replacesDock") as? Bool ?? true
+    private var launchers: [LauncherEntry] = []
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+        launchers = dockLaunchers()
+        if !demo && replacesDock && AXIsProcessTrusted() { _ = dock.enable() }
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem?.button?.image = NSImage(
+            systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "WindowBar")
+        statusItem?.menu = makeMenu()
+        if screenshots { createBackdrop() }
+        rebuildPanels()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(rebuildPanels),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(refresh),
+            name: NSWorkspace.didActivateApplicationNotification, object: nil)
+        timer = Timer.scheduledTimer(
+            timeInterval: 1.5, target: self, selector: #selector(refresh), userInfo: nil, repeats: true)
+        refresh()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        timer?.invalidate()
+        dock.restore()
+    }
+
+    private func createBackdrop() {
+        guard let screen = NSScreen.screens.first else { return }
+        let frame = NSRect(
+            x: screen.visibleFrame.minX + 12, y: screen.visibleFrame.minY,
+            width: screen.visibleFrame.width - 24, height: 620)
+        let panel = TaskbarPanel(
+            contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+            defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.title = "WindowBar Screenshots"
+        panel.contentView = ScreenshotBackdrop(frame: NSRect(origin: .zero, size: frame.size))
+        panel.orderFrontRegardless()
+        backdrop = panel
+    }
+
+    @objc private func rebuildPanels() {
+        for panel in panels { panel.close() }
+        panels = []
+        bars = []
+        // The first screen is the display with the menu bar, not the focused window's display.
+        let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
+        for screen in screens {
+            let frame = barFrame(for: screen)
+            let panel = TaskbarPanel(
+                contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+                defer: false)
+            panel.isReleasedWhenClosed = false
+            panel.level = .floating
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+            panel.hidesOnDeactivate = false
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = true
+            panel.title = "WindowBar"
+            let bar = BarView(frame: NSRect(origin: .zero, size: frame.size))
+            bar.onSelect = { [weak self] in self?.select($0) }
+            bar.onMinimize = { [weak self] in self?.minimize($0) }
+            bar.onClose = { [weak self] in self?.closeWindow($0) }
+            bar.onLaunch = { NSWorkspace.shared.open($0.url) }
+            bar.makeLauncherMenu = { [weak self] launcher, windows in
+                guard let self else { return NSMenu() }
+                return self.launcherMenus.makeMenu(
+                    launcher: launcher, windows: windows, onSelect: { [weak self] in self?.select($0) })
+            }
+            bar.menuButton.target = self
+            bar.menuButton.action = #selector(showMenu(_:))
+            bar.permissionButton.target = self
+            bar.permissionButton.action = #selector(enableAccessibility)
+            panel.contentView = bar
+            panels.append(panel)
+            bars.append(bar)
+            if !hidden { panel.orderFrontRegardless() }
+        }
+        render()
+    }
+
+    private func barFrame(for screen: NSScreen) -> NSRect {
+        let visible = screen.visibleFrame
+        let bottom = dock.isEnabled && !demo ? screen.frame.minY : visible.minY
+        let width = max(200, visible.width - 24)
+        return NSRect(x: visible.minX + 12, y: bottom + 8, width: width, height: BarLayout.height)
+    }
+
+    @objc private func refresh() {
+        // Dock size/auto-hide changes need no relaunch.
+        let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
+        for (panel, screen) in zip(panels, screens) {
+            let frame = barFrame(for: screen)
+            if panel.frame != frame { panel.setFrame(frame, display: true) }
+        }
+        if demo {
+            entries = sampleWindows()
+            render()
+            return
+        }
+        guard AXIsProcessTrusted() else {
+            scanGeneration.invalidate()
+            _ = dock.restore()
+            entries = []
+            render()
+            return
+        }
+        if replacesDock && !hidden { _ = dock.enable() }
+        guard !scanning else { return }
+        scanning = true
+        let captured = scanGeneration.value
+        let service = windowService
+        scanner.async { [weak self] in
+            let windows = service.readWindows()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.scanning = false
+                guard self.scanGeneration.accepts(captured) else {
+                    self.refresh()
+                    return
+                }
+                self.entries = windows
+                self.render()
+            }
+        }
+    }
+
+    private func render() {
+        let trusted = demo || AXIsProcessTrusted()
+        let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
+        for (panel, screen) in zip(panels, screens) {
+            let frame = barFrame(for: screen)
+            if panel.frame != frame { panel.setFrame(frame, display: true) }
+        }
+        for bar in bars { bar.update(entries: entries, trusted: trusted, launchers: launchers) }
+    }
+
+    private func select(_ entry: WindowEntry) {
+        guard entry.element != nil else { return }
+        scanGeneration.invalidate()
+        entries = entries.map { existing in
+            var updated = existing
+            updated.focused = existing.id == entry.id
+            return updated
+        }
+        render()
+        windowActions.select(entry) { [weak self] in self?.refresh() }
+    }
+
+    private func minimize(_ entry: WindowEntry) {
+        scanGeneration.invalidate()
+        if entry.minimized {
+            select(entry)
+        } else {
+            windowActions.minimize(entry)
+            refresh()
+        }
+    }
+
+    private func closeWindow(_ entry: WindowEntry) {
+        scanGeneration.invalidate()
+        windowActions.close(entry)
+        refresh()
+    }
+
+    @objc private func enableAccessibility() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        if let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        let title = NSMenuItem(title: demo ? "WindowBar · Demo" : "WindowBar", action: nil, keyEquivalent: "")
+        title.isEnabled = false
+        menu.addItem(title)
+        menu.addItem(.separator())
+        let items: [(String, Selector, String)] = [
+            (hidden ? "Show bar" : "Hide bar", #selector(toggleVisibility), ""),
+            ("Replace macOS Dock", #selector(toggleDock), ""),
+            ("Show on all displays", #selector(toggleDisplays), ""),
+            ("Open Downloads", #selector(openDownloads), ""),
+            ("Open Trash", #selector(openTrash), ""),
+            ("Refresh windows", #selector(refresh), ""),
+            ("Enable Accessibility…", #selector(enableAccessibility), ""),
+            ("Quit WindowBar", #selector(quit), "q"),
+        ]
+        for (title, action, shortcut) in items {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: shortcut)
+            item.target = self
+            if action == #selector(toggleDisplays) { item.state = allDisplays ? .on : .off }
+            if action == #selector(toggleDock) { item.state = replacesDock ? .on : .off }
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func showMenu(_ sender: NSButton) {
+        makeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.maxY + 8), in: sender)
+    }
+
+    @objc private func toggleVisibility() {
+        hidden.toggle()
+        if hidden {
+            dock.restore()
+        } else if replacesDock && !demo && AXIsProcessTrusted() {
+            _ = dock.enable()
+        }
+        for panel in panels { if hidden { panel.orderOut(nil) } else { panel.orderFrontRegardless() } }
+        statusItem?.menu = makeMenu()
+    }
+
+    @objc private func toggleDock() {
+        replacesDock.toggle()
+        if replacesDock && !hidden && !demo && AXIsProcessTrusted() {
+            _ = dock.enable()
+        } else {
+            dock.restore()
+        }
+        UserDefaults.standard.set(replacesDock, forKey: "replacesDock")
+        refresh()
+        statusItem?.menu = makeMenu()
+    }
+
+    @objc private func openDownloads() {
+        if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openTrash() {
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash")
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc private func toggleDisplays() {
+        allDisplays.toggle()
+        UserDefaults.standard.set(allDisplays, forKey: "allDisplays")
+        rebuildPanels()
+        statusItem?.menu = makeMenu()
+    }
+
+    @objc private func quit() { NSApp.terminate(nil) }
+}

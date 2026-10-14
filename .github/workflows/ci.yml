@@ -1,0 +1,26 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Unit tests
+        run: swift test --scratch-path build/swiftpm
+      - name: Build native app
+        run: zsh build.sh
+      - name: Validate app bundle
+        run: |
+          plutil -lint build/WindowBar.app/Contents/Info.plist
+          codesign --verify --strict --verbose=2 build/WindowBar.app

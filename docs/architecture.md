@@ -1,0 +1,41 @@
+# Architecture and maintenance
+
+WindowBar uses Swift Package Manager, AppKit, and public macOS Accessibility APIs. There are no third-party packages or network calls in the application.
+
+## Responsibilities
+
+| Component | Responsibility |
+| --- | --- |
+| `WindowBarCore` | Pure layout calculations, scan generations, command parsing, typed Dock backups, Chrome profile metadata decoding |
+| `AppDelegate` | Compose dependencies, coordinate scans, lifecycle, settings, and display panels |
+| `AccessibilityWindowService` | Discover app windows on one serial background queue; preserve the last app snapshot on transient timeouts |
+| `WindowActions` | Activate, restore, minimize, and close windows; cancel obsolete delayed activation |
+| `DockController` | Save and restore Dock settings, serialize preference transactions, run the crash guard |
+| `ChromeProfileStore` | Read profile display metadata from Chrome's Local State |
+| `ChromeProfileLauncher` | Launch a window with the selected profile directory |
+| `LauncherMenuBuilder` | Construct app context menus and native File/Shell commands |
+| `Views` | Draw and animate the bar; publish user actions through callbacks |
+| `Preview` | Synthetic fixtures, PNG rendering, and a controlled screenshot background |
+
+The application depends on small `WindowDiscovering`, `WindowActing`, `DockReplacing`, and `LauncherMenuProviding` interfaces. Their implementations are injected into `AppDelegate`. Icon views do not discover profiles, manipulate Dock preferences, or construct native app commands. The layout and file decoders are independent of the running desktop and tested with XCTest.
+
+## State and ownership
+
+- The main thread owns AppKit views and application state. Window discovery owns its cache on one serial queue.
+- Every selection or permission change invalidates earlier scans. A stale result cannot replace the current selection or repopulate windows after permission is revoked.
+- A generation check cancels delayed activation after a newer selection. An app that has lost focus is not raised again by an old callback.
+- A kernel file lock prevents duplicate WindowBar instances. Its descriptor is close-on-exec, so the crash guard cannot keep the GUI instance lock alive.
+- Dock preference changes use a separate cross-process transaction lock. A late guard cannot restore an older snapshot over a newer app's settings.
+- Backups preserve the difference between an absent preference and an existing false or zero value. If restoration fails, the original backup is retained and the failure is logged.
+
+## Extending the app
+
+To change sizing, edit `BarLayout` and its tests. Colors and drawing helpers live in `Views/Theme.swift`; button transitions live in `Views/WindowButton.swift`. To add another app-specific menu, extend a menu provider rather than the icon view. To add another browser's profiles, provide a reader and launcher with tests around its metadata format and launch arguments.
+
+Chrome profile metadata is an internal browser format. WindowBar reads only display metadata and does not write Chrome files. Profile directory names are validated, and launch arguments are passed as an array. Removed directories are not created by an accidental profile launch. The checkmark marks Chrome's last-used profile, not a guarantee about the currently focused window. See Chromium's [user data directory](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/user_data_dir.md) and [startup switches](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/common/chrome_switches.cc) for the underlying conventions.
+
+## Validation
+
+Unit tests run in CI without changing desktop preferences. GUI smoke tests are local and explicit: they require a desktop, Accessibility access, Chrome, and Terminal. The Dock smoke suite launches and force-quits WindowBar; run it with WindowBar closed. Browser tests create isolated blank windows, close their own windows, and restore the previously active app. Screenshots use sample titles and sample profile names.
+
+Swift language mode is 5 for compatibility with the supported toolchain. A future Swift 6 migration should introduce explicit actor boundaries for AppKit and audited sendability of Accessibility snapshots; it should not add unchecked sendability merely to silence compiler errors.

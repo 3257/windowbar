@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 BINARY = ROOT / "build/WindowBar.app/Contents/MacOS/WindowBar"
 BACKUP = Path.home() / "Library/Application Support/WindowBar/dock-backup.plist"
 
