@@ -20,12 +20,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let windowActions: WindowActing
     private let launcherMenus: LauncherMenuProviding
     private var scanGeneration = ScanGeneration()
+    private let features: FeatureCoordinator
+    private let diagnostics: Diagnostics
+    private let previews = HoverPreviewController()
+    private lazy var shortcuts = GlobalShortcuts()
+    private lazy var managementMenus = BarManagementMenus(features: features)
+    private var settings: SettingsWindowController?
+    private var lastTrusted: Bool?
+    private var terminationSignals: [DispatchSourceSignal] = []
 
     init(
         demo: Bool = false, screenshots: Bool = false, dock: DockReplacing = DockController(),
         windowService: WindowDiscovering = AccessibilityWindowService(),
         windowActions: WindowActing = WindowActions(),
-        launcherMenus: LauncherMenuProviding = LauncherMenuBuilder()
+        launcherMenus: LauncherMenuProviding = LauncherMenuBuilder(),
+        features: FeatureCoordinator = FeatureCoordinator(), diagnostics: Diagnostics = .shared
     ) {
         self.demo = demo
         self.screenshots = screenshots
@@ -33,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.windowService = windowService
         self.windowActions = windowActions
         self.launcherMenus = launcherMenus
+        self.features = features
+        self.diagnostics = diagnostics
         super.init()
     }
     private var replacesDock = UserDefaults.standard.object(forKey: "replacesDock") as? Bool ?? true
@@ -41,6 +52,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         launchers = dockLaunchers()
+        managementMenus.onPinsChanged = { [weak self] in self?.changePins {} }
+        managementMenus.onOrderChanged = { [weak self] in self?.render() }
+        managementMenus.onRefresh = { [weak self] in self?.refresh() }
+        managementMenus.onError = { [weak self] _ in
+            NSSound.beep()
+            self?.diagnostics.record(.settingsChangeFailed)
+        }
+        if !demo {
+            do {
+                try features.preferences.importLaunchersIfNeeded(launchers)
+                launchers = features.preferences.launchers()
+            } catch { diagnostics.record(.scanFailed) }
+            shortcuts.onAction = { [weak self] in self?.performShortcut($0) }
+            do {
+                try shortcuts.configure(
+                    features.preferences.value.shortcutsEnabled ? features.preferences.value.shortcuts : [])
+            } catch { diagnostics.record(.shortcutRegistrationFailed) }
+            for value in [SIGTERM, SIGINT, SIGHUP] {
+                signal(value, SIG_IGN)
+                let source = DispatchSource.makeSignalSource(signal: value, queue: .main)
+                source.setEventHandler { NSApp.terminate(nil) }
+                source.resume()
+                terminationSignals.append(source)
+            }
+        }
         if !demo && replacesDock && AXIsProcessTrusted() { _ = dock.enable() }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem?.button?.image = NSImage(
@@ -52,6 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(rebuildPanels),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(refreshAppearance),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(refresh),
             name: NSWorkspace.didActivateApplicationNotification, object: nil)
         timer = Timer.scheduledTimer(
@@ -61,7 +100,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         timer?.invalidate()
-        dock.restore()
+        previews.hide()
+        for source in terminationSignals { source.cancel() }
+        if !demo { diagnostics.record(.shutdownRequested) }
+        let restored = dock.restore()
+        if !demo { diagnostics.finishSession(restoredDock: restored) }
     }
 
     private func createBackdrop() {
@@ -82,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func rebuildPanels() {
+        previews.hide()
         for panel in panels { panel.close() }
         panels = []
         bars = []
@@ -107,8 +151,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bar.onLaunch = { NSWorkspace.shared.open($0.url) }
             bar.makeLauncherMenu = { [weak self] launcher, windows in
                 guard let self else { return NSMenu() }
-                return self.launcherMenus.makeMenu(
+                let menu = self.launcherMenus.makeMenu(
                     launcher: launcher, windows: windows, onSelect: { [weak self] in self?.select($0) })
+                self.managementMenus.augmentLauncher(menu, launcher: launcher, launchers: self.launchers)
+                return menu
+            }
+            bar.onWindowReorder = { [weak self] source, target, after in
+                self?.previews.hide()
+                self?.features.moveWindow(source, relativeTo: target, after: after)
+                self?.render()
+            }
+            bar.onLauncherReorder = { [weak self] source, target, after in
+                guard let self else { return }
+                self.previews.hide()
+                self.changePins { try self.features.moveLauncher(source, relativeTo: target, after: after) }
+            }
+            bar.onHover = { [weak self] entry, button, entered in
+                guard let self else { return }
+                self.previews.hover(
+                    entry, button: button, entered: entered, mode: self.features.preferences.value.previewMode
+                )
+            }
+            bar.onDragStart = { [weak self] in self?.previews.hide() }
+            bar.augmentWindowMenu = { [weak self] menu, entry in
+                guard let self else { return }
+                self.managementMenus.augmentWindow(menu, entry: entry, entries: self.entries)
             }
             bar.menuButton.target = self
             bar.menuButton.action = #selector(showMenu(_:))
@@ -141,7 +208,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             render()
             return
         }
-        guard AXIsProcessTrusted() else {
+        let trusted = AXIsProcessTrusted()
+        if lastTrusted != trusted {
+            lastTrusted = trusted
+            diagnostics.record(.permissionChanged)
+        }
+        guard trusted else {
             scanGeneration.invalidate()
             _ = dock.restore()
             entries = []
@@ -169,17 +241,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func render() {
+        entries = features.ordered(entries)
+        previews.retainOnly(Set(entries.map(\.id)))
         let trusted = demo || AXIsProcessTrusted()
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
         for (panel, screen) in zip(panels, screens) {
             let frame = barFrame(for: screen)
             if panel.frame != frame { panel.setFrame(frame, display: true) }
         }
-        for bar in bars { bar.update(entries: entries, trusted: trusted, launchers: launchers) }
+        let displays = NSScreen.screens.map { DisplayRegion(id: displayID($0), frame: $0.frame) }
+        for (bar, screen) in zip(bars, screens) {
+            let visible = features.visible(entries, displayID: displayID(screen), displays: displays)
+            bar.update(entries: visible, trusted: trusted, launchers: launchers)
+        }
     }
 
     private func select(_ entry: WindowEntry) {
-        guard entry.element != nil else { return }
+        guard demo || entry.element != nil else { return }
+        previews.hide()
         scanGeneration.invalidate()
         entries = entries.map { existing in
             var updated = existing
@@ -187,6 +266,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return updated
         }
         render()
+        for bar in bars { bar.revealWindow(entry.id) }
+        if demo { return }
         windowActions.select(entry) { [weak self] in self?.refresh() }
     }
 
@@ -226,6 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             (hidden ? "Show bar" : "Hide bar", #selector(toggleVisibility), ""),
             ("Replace macOS Dock", #selector(toggleDock), ""),
             ("Show on all displays", #selector(toggleDisplays), ""),
+            ("Settings…", #selector(showSettings), ","),
             ("Open Downloads", #selector(openDownloads), ""),
             ("Open Trash", #selector(openTrash), ""),
             ("Refresh windows", #selector(refresh), ""),
@@ -247,6 +329,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleVisibility() {
+        previews.hide()
         hidden.toggle()
         if hidden {
             dock.restore()
@@ -288,4 +371,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+
+    private func displayID(_ screen: NSScreen) -> UInt32 {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+            ?? CGMainDisplayID()
+    }
+
+    @objc private func refreshAppearance() {
+        previews.hide()
+        rebuildPanels()
+    }
+
+    @objc private func showSettings() {
+        previews.hide()
+        if settings == nil {
+            let controller = SettingsWindowController(features: features)
+            controller.onPreferencesChanged = { [weak self] updated in
+                guard let self else { return }
+                let previous = self.features.preferences.value
+                if !self.demo {
+                    try self.shortcuts.configure(updated.shortcutsEnabled ? updated.shortcuts : [])
+                }
+                do { try self.features.preferences.save(updated) } catch {
+                    if !self.demo {
+                        try? self.shortcuts.configure(previous.shortcutsEnabled ? previous.shortcuts : [])
+                    }
+                    throw error
+                }
+                self.previews.hide()
+                self.launchers = self.features.preferences.launchers()
+                self.render()
+                if !self.demo {
+                    self.diagnostics.record(
+                        previous.shortcuts == updated.shortcuts
+                            && previous.shortcutsEnabled == updated.shortcutsEnabled
+                            ? .preferencesChanged : .shortcutsChanged)
+                }
+            }
+            controller.onError = { [weak self] _ in self?.diagnostics.record(.settingsChangeFailed) }
+            settings = controller
+        }
+        settings?.present()
+    }
+
+    private func changePins(_ change: () throws -> Void) {
+        do {
+            try change()
+            launchers = features.preferences.launchers()
+            render()
+            settings?.refresh()
+        } catch { NSSound.beep() }
+    }
+
+    private func performShortcut(_ action: ShortcutAction) {
+        if let index = action.pinnedIndex {
+            guard launchers.indices.contains(index) else { return }
+            NSWorkspace.shared.open(launchers[index].url)
+            return
+        }
+        let regions = NSScreen.screens.map { DisplayRegion(id: displayID($0), frame: $0.frame) }
+        let screenID =
+            entries.first(where: \.focused).flatMap {
+                DisplayFilter.displayID(for: $0.frame, displays: regions)
+            }
+            ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }).map {
+                displayID($0)
+            }
+            ?? CGMainDisplayID()
+        let visible = features.visible(entries, displayID: screenID, displays: regions)
+        guard
+            let index = ShortcutBinding.cycleIndex(
+                count: visible.count, focusedIndex: visible.firstIndex(where: \.focused),
+                forward: action == .nextWindow)
+        else { return }
+        select(visible[index])
+    }
 }

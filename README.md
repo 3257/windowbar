@@ -1,124 +1,145 @@
 # WindowBar
 
-A native macOS taskbar with **one button per window**. Keep Chrome and Terminal windows visible in a single row, switch with one click, and open any Chrome profile from its pinned icon.
+A native macOS taskbar with **one button per window**. Keep Chrome and Terminal windows in a single row, identify Chrome profiles, and switch with one click.
 
-![WindowBar with sample Chrome and Terminal windows](docs/screenshots/windowbar.png)
+![Quiet Shelf with sample Chrome and Terminal windows](docs/screenshots/quiet-shelf-dark.png)
 
 ## Features
 
-- One row with automatically shrinking window buttons. Very narrow buttons show an app icon and window number; hover for the full title.
-- A focused window button that is 30% wider, with a clear blue border and indicator.
-- Smooth focus, hover, and resize transitions that respect macOS Reduce Motion.
-- Your existing Dock app shortcuts, plus Finder. Right-click for app actions, a window list, native “New…” commands, hide/show, quit, and Show in Finder.
-- **Every Chrome profile directly in the right-click menu.** Select a profile to open a new window in it. The checkmark marks Chrome's last-used profile.
-- Minimize, restore, and close individual windows from their context menus.
-- Optional bars on every display, mirroring the full window list.
-- Temporary Dock replacement with automatic restoration when WindowBar quits, hides, or is force-quit.
+- **Quiet Shelf:** system light/dark appearance, restrained focus styling, and pinned apps on the right. The leading “W” mark is removed.
+- Window buttons shrink automatically, then scroll horizontally at their minimum size. The focused button is 30% wider; motion follows macOS Reduce Motion.
+- **Drag to reorder** windows and pinned apps. Window order lasts for the current session; pinned app order persists across launches.
+- **Pin and unpin apps** from window/launcher context menus or Settings → Pinned Apps. Existing Dock pins are imported once; managing WindowBar pins does not edit Dock pins.
+- **Chrome profile badges:** show a name, initial, and consistent color when Chrome exposes its profile control. Right-click a window → Profile Badge to assign one manually or return to Automatic.
+- **Every Chrome profile directly in its pinned-app menu.** Selecting one opens a new window in it. Native New Window/New Tab commands, window lists, Hide/Show, Quit, and Show in Finder remain available.
+- **Display filtering:** show all windows or only windows on each bar's display. A spanning window belongs to the display containing its largest area. Windows without usable bounds remain reachable on every display.
+- **Hover cards:** full title and profile by default; optional window thumbnails through ScreenCaptureKit. Missing permission, minimized windows, and ambiguous capture targets fall back to titles.
+- **Configurable global shortcuts** for next/previous window and the first nine pinned apps. Registration conflicts retain the previous bindings. Shortcuts start disabled.
+- **Start at login** from the installed app's Settings. Installation stages and verifies the app, and protects running installed copies from replacement.
+- **Diagnostics:** bounded event logs, clean/unclean exit detection, export, and permission status. Logs omit window titles, profile names, URLs, and images.
+- Optional bars on every display, and temporary Dock replacement with restoration on hide, quit, or force-quit.
 
-## Screenshots
+## Screenshots and design
 
-The documentation images are captured from WindowBar's own AppKit views and native menu, using sample titles and profile names. They do not contain personal window titles, accounts, or desktop contents.
+These images render the app's own offscreen AppKit views with sample titles/profiles. The menu image renders actual NSMenu item state with native labels and separators, without opening a popup or capturing the desktop.
 
-![WindowBar overview](docs/screenshots/overview.png)
+![Quiet Shelf in light appearance](docs/screenshots/quiet-shelf-light.png)
 
-**Right-click Chrome:** profiles appear directly above its normal window and app actions.
+![Chrome context menu with four sample profiles](docs/screenshots/chrome-menu.png)
 
-![Chrome context menu showing four sample profiles](docs/screenshots/chrome-menu.png)
+![General settings](docs/screenshots/settings.png)
+
+[Interactive design study](docs/design/mockups.html) · [Design decisions](docs/design/README.md)
 
 ## Requirements
 
 - macOS 14 Sonoma or later, on Apple silicon or Intel.
-- Xcode Command Line Tools with Swift 5.10 or later to build. Run `xcode-select --install` if the tools are missing.
-- Accessibility access for window discovery and control. Screen Recording is not required.
+- Xcode Command Line Tools with Swift 5.10 or later. Use `xcode-select --install` if needed.
+- Accessibility access for discovering and controlling windows.
+- Screen Recording access only for optional thumbnails. Title previews do not need it.
 
-There are no third-party dependencies or application network calls. Chrome profile selection launches Chrome locally.
+No third-party packages or application network calls are used. Chrome launches locally; its metadata files are read-only.
 
-## Build and run
+## Build, install, and run
 
 ```sh
 git clone https://github.com/SimeonLGeorgiev/windowbar.git
 cd windowbar
+# Until PR #1 is merged:
+git checkout refactor/maintainable-windowbar
 zsh build.sh
-open build/WindowBar.app
+build/WindowBar.app/Contents/MacOS/WindowBar --install
+open ~/Applications/WindowBar.app
 ```
 
-The repository is private, so cloning requires access. The build script compiles for the current Mac's architecture and creates an ad-hoc signed `build/WindowBar.app`. Quit WindowBar before rebuilding it.
+The repository is private. The build creates an ad-hoc signed app for the current Mac's architecture. Installation copies it into your user Applications folder without launching it or replacing a running installed copy. The same action is available from Settings → General. Keep one copy running.
 
-When launching from a coding agent or terminal that manages its child processes, use `python3 scripts/run.py`. This developer launcher starts the app in its own session with closed input and redirects output to `~/Library/Logs/WindowBar/app.log`, so closing the launching session does not stop the taskbar. It requires Python 3. For everyday use, open the app from Finder or with `open` as shown above.
+Grant **WindowBar** access in **System Settings → Privacy & Security → Accessibility**. Add the installed copy with **+** if needed. A rebuilt ad-hoc signed app can require granting access again.
 
-On first launch, click **Enable Accessibility**, then enable **WindowBar** in **System Settings → Privacy & Security → Accessibility**. If the app is missing, add `build/WindowBar.app` with the **+** button. Quit and reopen it if a changed permission is not reflected immediately. Rebuilding an ad-hoc signed app can require granting Accessibility again.
+Enable **Start at login** from the installed copy's Settings. If macOS reports that approval is required, use **Login Items Settings** to allow it. Login startup is not registered automatically during builds or tests.
 
-To keep the app in Applications, copy `build/WindowBar.app` there and grant permission to that installed copy. Keep one copy running.
+Enable thumbnails in **Settings → General → Hover previews**, then use **Enable thumbnail access** if needed. Permission is requested only by this explicit button; hovering never opens a permission dialog. macOS may require reopening the app after granting access. Thumbnails stay in memory and are not logged or written to disk.
 
 ## Daily use
 
 | Action | Result |
 | --- | --- |
 | Click a window button | Switch to that window; restore it if minimized |
-| Right-click a window button | Switch, minimize/restore, or close that window |
-| Right-click a pinned app | App actions, its windows, and supported native New Window/New Tab commands |
-| Right-click Chrome → select a profile | Open a new window in the chosen profile |
-| Scroll over the bar | Reach windows when their count exceeds the minimum button width |
-| **⋯** or menu bar icon | Hide/show, replace the Dock, choose displays, open Downloads/Trash, refresh, or quit |
+| Drag a window button or pinned icon | Move it before/after another button of the same kind |
+| Right-click a window | Switch, minimize/restore, close, pin its app, move, or choose a Chrome profile badge |
+| Right-click a pinned app | Native app actions, its windows, move, or unpin |
+| Right-click Chrome → profile | Open a new window in that profile |
+| Hover a window | Full title/profile, with an optional thumbnail |
+| Scroll over the windows or pins | Reach overflow items without a second row |
+| **⋯** or menu bar icon → Settings | General, Pinned Apps, Shortcuts, and Diagnostics |
+| Settings → Shortcuts | Enable shortcuts and click a combination to record it; Escape cancels |
 
-Chrome profiles are read afresh when the menu opens. Duplicate display names are distinguished by their profile directory. Chrome data is read-only; profile selection does not create a directory that has been removed.
+Default shortcuts are **Control–Command–Left/Right** for previous/next window and **Control–Command–1…9** for pinned apps. They remain inactive until enabled. Keyboard window navigation follows the selected display filter and reveals the selected button in the row.
 
-**Replace macOS Dock** is enabled by default once Accessibility access is available. Disable it to keep WindowBar above the original Dock. Hiding or quitting WindowBar restores the saved Dock preferences. A separate guard restores them after a crash or force-quit. Original settings are stored in `~/Library/Application Support/WindowBar/dock-backup.plist`; the app retains this backup if restoration fails.
+**Show on all displays** controls where bars appear. **Settings → General → Windows to show** controls each bar's window list. Profile overrides and window ordering are session state; persistent pins and preferences are separate from Dock settings.
 
-## Development
+**Replace macOS Dock** is enabled once Accessibility is available. Hiding or quitting restores the saved settings. A separate guard restores them after a crash/force-quit. The backup at `~/Library/Application Support/WindowBar/dock-backup.plist` is retained if restoration fails.
 
-The project uses Swift Package Manager. Open `Package.swift` in Xcode, or use the CLI:
+## Development without interrupting a running copy
+
+The builder refuses to overwrite a running app bundle. Build a separate candidate:
 
 ```sh
-swift test --scratch-path build/swiftpm
-zsh build.sh
+WINDOWBAR_APP_PATH="$PWD/build/candidate/WindowBar.app" \
+WINDOWBAR_BUILD_PATH="$PWD/build/candidate-swiftpm" zsh build.sh
+swift test --scratch-path build/candidate-swiftpm
+zsh scripts/smoke.sh isolated
 xcrun swift-format lint --strict --recursive Sources Tests Package.swift
 ```
 
-Formatting uses the checked-in `.swift-format` configuration. `swift-format` is included in current Swift toolchains; the build itself does not depend on it.
+The isolated checks exercise all seven feature areas with temporary preferences/files, fake login/hotkey/capture backends, native controls and drag/drop callbacks, hover cancellation, and light/dark rendering. All windows stay offscreen; the wrapper verifies that the running taskbar PID, Dock snapshot, and Dock preferences remain intact. It does not activate Chrome/Terminal, register live shortcuts/login items, request permissions, or capture the desktop.
 
-| Directory | Contents |
-| --- | --- |
-| `Sources/WindowBarCore` | Pure layout, state, command parsing, Dock snapshots, and Chrome profile decoding |
-| `Sources/WindowBar/Services` | Accessibility, window actions, Dock lifecycle, native menus, Chrome profiles |
-| `Sources/WindowBar/Views` | AppKit drawing, event callbacks, and animation |
-| `Sources/WindowBar/Preview` | Synthetic fixtures and native documentation rendering |
-| `Tests/WindowBarCoreTests` | XCTest cases that do not modify the running desktop |
-| `Tests/Smoke` | Explicit local desktop integration checks |
+For a detached developer launch, use `python3 scripts/run.py`. It starts the built app in its own process session and redirects output to `~/Library/Logs/WindowBar/app.log`. For everyday use, open the installed app from Finder.
 
-Read the [architecture notes](docs/architecture.md) and [maintainability review](docs/code-review.md) before changing lifecycle or Dock handling. GitHub Actions builds the app, runs core tests, and validates the bundle on macOS.
+### Live desktop checks
 
-### Local desktop checks
-
-Run these on a Mac with Accessibility access, Chrome and Terminal open, and both apps pinned in the Dock. The menus, tabs, and terminal checks require WindowBar running; the Dock and lifetime checks require it closed.
+These checks change focus or restart WindowBar. Run them when your desktop is available for testing, with Accessibility access and Chrome/Terminal open and pinned:
 
 ```sh
+# WindowBar must be running:
 zsh scripts/smoke.sh menus
 zsh scripts/smoke.sh tabs
 zsh scripts/smoke.sh terminal
-# Quit WindowBar before this check:
+# WindowBar must be closed:
 zsh scripts/smoke.sh dock
 zsh scripts/smoke.sh lifetime
 ```
 
-Menu and tab checks create isolated blank Chrome windows and close their own windows afterward. The menu check also enumerates every local Chrome profile and opens a window in the last-used profile. The Dock check launches, quits, and force-quits WindowBar to verify exact restoration. The lifetime check closes the launching process group and verifies that the same taskbar survives for 45 seconds with Dock replacement active. Both lifecycle checks leave WindowBar closed and restore the original Dock preferences. Failed checks exit with a nonzero status.
+Browser checks create isolated blank windows and close their own windows afterward. Terminal follows the current Accessibility handle as tabs change and closes its created window IDs. Lifecycle checks verify exact Dock restoration and survival after closing the launching process group. Failures return a nonzero status.
 
-The Terminal check creates an isolated window through the pinned menu, switches from Chrome to it with a real taskbar click, checks Command-T and the pinned New Tab action, and closes its created windows and tabs by their IDs. It follows Terminal's current focused Accessibility handle because that handle can change when a new tab opens.
+Actual login registration, real thumbnail capture, global shortcut delivery, and physical monitor attach/detach should also be checked on an installed copy when desktop testing is appropriate; isolated backend checks do not establish those OS integrations.
 
-### Diagnostics and documentation images
+### Diagnostics and documentation
 
 ```sh
-build/WindowBar.app/Contents/MacOS/WindowBar --diagnose
-build/WindowBar.app/Contents/MacOS/WindowBar --demo
-zsh scripts/screenshots.sh
+build/candidate/WindowBar.app/Contents/MacOS/WindowBar --diagnose
+WINDOWBAR_APP_PATH="$PWD/build/candidate/WindowBar.app" zsh scripts/screenshots.sh
 ```
 
-Diagnostics prints permission state and per-app window counts without window titles. Demo mode uses sample windows and leaves Dock settings alone. The screenshot script renders native AppKit views and a native Chrome menu with sample data into `docs/screenshots`, without desktop capture or Screen Recording access. Chrome must be installed and running for its native New Window/New Tab actions to appear in the menu image.
+Diagnostics reports permission state and app window counts without titles. App events live in `~/Library/Logs/WindowBar/events.jsonl`, with one rotated archive. Each file rotates at approximately 512 KiB. Settings → Diagnostics can reveal or export events. Normal shutdown clears the session marker; a leftover marker from a dead process produces an unclean-exit event on the next launch.
+
+Documentation rendering never opens menus or activates an app. Its fixed sample launchers/profile names do not contain accounts or desktop content. Chrome must be running for native New commands to appear in the menu rendering.
+
+## Code organization
+
+| Directory | Contents |
+| --- | --- |
+| `Sources/WindowBarCore` | Layout, ordering, display/capture matching, preferences, shortcut validation, profile decoding |
+| `Sources/WindowBar/Services` | Accessibility, actions, menus, pin state, login, installation, hotkeys, previews, diagnostics, Dock lifecycle |
+| `Sources/WindowBar/Views` | Native drawing, drag/drop, hover cards, settings, and shortcut recording |
+| `Sources/WindowBar/Preview` | Sample fixtures, offscreen rendering, and isolated feature verification |
+| `Tests/WindowBarCoreTests` | Pure XCTest cases |
+| `Tests/Smoke` | Isolated and explicit desktop integration checks |
+
+Read [architecture](docs/architecture.md) and [maintainability review](docs/code-review.md) before changing lifecycle or Dock handling. CI runs core tests, builds/verifies the bundle, and runs isolated native feature checks.
 
 ## Current limits
 
-WindowBar is a local prototype. It overlays desktop space rather than reserving an area from other windows. Apps that do not expose standard Accessibility windows may not appear. Full-screen and Space switching depend on the app and macOS behavior.
+WindowBar overlays space rather than reserving it. Accessibility support and full-screen/Space behavior vary by app. Native New commands use English File/Shell headings. Chrome profiles use standard Chrome/Beta/Dev/Canary locations; custom user-data directories and localized/ambiguous profile controls may need a manual badge.
 
-Native “New…” command discovery currently uses English **File** and **Shell** menu titles. Chrome profiles use the standard Chrome/Chrome Beta/Chrome Dev/Chrome Canary data locations; custom user-data directories are not configured through the UI. Chrome's internal metadata format can change, so its parser and tests should be reviewed when browser behavior changes.
-
-There are no thumbnail previews, drag-to-reorder controls, launch-at-login setting, notarized release, or update service yet. Build on each architecture you intend to use.
+Unavailable or ambiguous windows get title-only previews. Monitor behavior is tested with simulated layouts; physical multi-monitor testing needs suitable hardware. This local build is ad-hoc signed and has no notarized release or update service. Build on each target architecture.

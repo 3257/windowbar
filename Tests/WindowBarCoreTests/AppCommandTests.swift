@@ -3,6 +3,11 @@ import XCTest
 @testable import WindowBarCore
 
 final class AppCommandTests: XCTestCase {
+    func testIsolatedChecksAndExplicitInstallationCommands() throws {
+        XCTAssertEqual(try AppCommand.parse(["--self-test"]), .selfTest)
+        XCTAssertEqual(try AppCommand.parse(["--install"]), .install)
+        XCTAssertThrowsError(try AppCommand.parse(["--install", "unexpected"]))
+    }
     func testNormalAndScreenshotCommands() throws {
         XCTAssertEqual(try AppCommand.parse([]), .run(demo: false, screenshots: false))
         XCTAssertEqual(try AppCommand.parse(["--screenshot-demo"]), .run(demo: true, screenshots: true))
