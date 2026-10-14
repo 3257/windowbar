@@ -1,6 +1,6 @@
 import AppKit
 
-let accent = NSColor(calibratedRed: 0.43, green: 0.68, blue: 1, alpha: 1)
+var accent: NSColor { .controlAccentColor }
 
 func drawText(_ text: String, in rect: NSRect, size: CGFloat, weight: NSFont.Weight, color: NSColor) {
     let style = NSMutableParagraphStyle()

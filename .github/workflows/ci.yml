@@ -24,3 +24,5 @@ jobs:
         run: |
           plutil -lint build/WindowBar.app/Contents/Info.plist
           codesign --verify --strict --verbose=2 build/WindowBar.app
+      - name: Isolated native feature checks
+        run: python3 Tests/Smoke/verify_isolation.py build/WindowBar.app/Contents/MacOS/WindowBar

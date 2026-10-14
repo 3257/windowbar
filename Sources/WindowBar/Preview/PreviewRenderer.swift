@@ -1,117 +1,105 @@
 import AppKit
 import WindowBarCore
 
+/// Renders only owned, offscreen AppKit views. No menu tracking, capture or activation.
 enum PreviewRenderer {
     enum RenderingError: Error { case bitmapUnavailable }
 
     static func write(to url: URL) throws {
         let view = BarView(frame: NSRect(x: 0, y: 0, width: 1320, height: BarLayout.height))
-        view.update(entries: sampleWindows(), trusted: true, launchers: dockLaunchers())
+        view.update(entries: sampleWindows(), trusted: true, launchers: sampleLaunchers())
         view.layoutSubtreeIfNeeded()
-        let image = NSImage(size: view.bounds.size)
-        image.lockFocus()
-        NSColor(calibratedWhite: 0.09, alpha: 1).setFill()
-        NSBezierPath(roundedRect: view.bounds, xRadius: 16, yRadius: 16).fill()
-        guard let context = NSGraphicsContext.current else {
-            image.unlockFocus()
-            throw RenderingError.bitmapUnavailable
-        }
-        view.displayIgnoringOpacity(view.bounds, in: context)
-        image.unlockFocus()
-        guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
-            let png = bitmap.representation(using: .png, properties: [:])
-        else { throw RenderingError.bitmapUnavailable }
-        try png.write(to: url)
+        try writeView(view, to: url)
     }
 
-    /// Captures only views owned by this process. No desktop or screen recording.
     static func documentation(in directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
-        let previousAppearance = app.appearance
+        app.setActivationPolicy(.prohibited)
+        let previous = app.appearance
+        defer { app.appearance = previous }
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            app.appearance = NSAppearance(named: appearance)
+            let scene = ScreenshotBackdrop(frame: NSRect(x: 0, y: 0, width: 1320, height: 340))
+            let panel = TaskbarPanel(
+                contentRect: scene.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+                defer: false)
+            panel.isReleasedWhenClosed = false
+            panel.contentView = scene
+            let bar = BarView(frame: NSRect(x: 0, y: 8, width: 1320, height: BarLayout.height))
+            bar.update(entries: sampleWindows(), trusted: true, launchers: sampleLaunchers())
+            scene.addSubview(bar)
+            scene.layoutSubtreeIfNeeded()
+            // A deterministic material backing stands in for the desktop behind the shelf.
+            bar.blendingMode = .withinWindow
+            bar.layer?.backgroundColor =
+                appearance == .aqua
+                ? NSColor(calibratedWhite: 0.94, alpha: 1).cgColor
+                : NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            try writeView(bar, to: directory.appendingPathComponent("quiet-shelf-\(name).png"))
+            if name == "dark" {
+                try writeView(scene, to: directory.appendingPathComponent("overview.png"))
+                try writeView(bar, to: directory.appendingPathComponent("windowbar.png"))
+            }
+            panel.close()
+        }
         app.appearance = NSAppearance(named: .darkAqua)
-        defer { app.appearance = previousAppearance }
-
-        let scene = ScreenshotBackdrop(frame: NSRect(x: 0, y: 0, width: 1320, height: 340))
-        let panel = TaskbarPanel(
-            contentRect: NSRect(x: 100, y: 100, width: 1320, height: 340),
-            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.isReleasedWhenClosed = false
-        panel.contentView = scene
-        defer { panel.close() }
-        let bar = BarView(frame: NSRect(x: 0, y: 8, width: 1320, height: BarLayout.height))
-        let samples = sampleWindows()
-        let launchers = dockLaunchers()
-        bar.update(entries: samples, trusted: true, launchers: launchers)
-        scene.addSubview(bar)
-        scene.layoutSubtreeIfNeeded()
-        try writeView(scene, to: directory.appendingPathComponent("overview.png"))
-        try writeView(bar, to: directory.appendingPathComponent("windowbar.png"))
-
-        guard let chrome = launchers.first(where: { $0.name == "Google Chrome" }) else { return }
-        let menu = LauncherMenuBuilder(profiles: SampleChromeProfiles()).makeMenu(
-            launcher: chrome, windows: samples.filter { $0.appName == chrome.name }, onSelect: { _ in })
-        let capture = MenuCapture(
-            app: app, menu: menu, destination: directory.appendingPathComponent("chrome-menu.png"))
-        let timer = Timer(
-            timeInterval: 0.25, target: capture, selector: #selector(MenuCapture.capture), userInfo: nil,
-            repeats: false)
-        RunLoop.main.add(timer, forMode: .eventTracking)
-        menu.popUp(positioning: nil, at: NSPoint(x: 250, y: 700), in: nil)
-        if let failure = capture.failure { throw failure }
-        guard capture.captured else { throw RenderingError.bitmapUnavailable }
-    }
-
-    private final class MenuCapture: NSObject {
-        let app: NSApplication
-        let menu: NSMenu
-        let destination: URL
-        var failure: Error?
-        var captured = false
-
-        init(app: NSApplication, menu: NSMenu, destination: URL) {
-            self.app = app
-            self.menu = menu
-            self.destination = destination
+        if let chrome = sampleLaunchers().first(where: { $0.name == "Google Chrome" }) {
+            let menu = LauncherMenuBuilder(profiles: SampleChromeProfiles()).makeMenu(
+                launcher: chrome, windows: sampleWindows().filter { $0.appName == chrome.name },
+                onSelect: { _ in })
+            let view = menuSnapshot(menu)
+            try writeView(view, to: directory.appendingPathComponent("chrome-menu.png"))
         }
-
-        @objc func capture(_ timer: Timer) {
-            defer { menu.cancelTracking() }
-            do {
-                guard let view = app.windows.first(where: { $0.level == .popUpMenu })?.contentView else {
-                    throw RenderingError.bitmapUnavailable
-                }
-                try PreviewRenderer.writeView(view, to: destination, opaqueMenu: true)
-                captured = true
-            } catch { failure = error }
+        let suite = "local.windowbar.screenshot.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = PreferencesStore(defaults: defaults)
+        try preferences.importLaunchersIfNeeded(sampleLaunchers())
+        let controller = SettingsWindowController(
+            features: FeatureCoordinator(preferences: preferences),
+            startup: LoginItemService(backend: FeatureVerification.LoginBackend(), installed: { true }))
+        defer { controller.close() }
+        if let view = controller.tabs.selectedTabViewItem?.view {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            view.layoutSubtreeIfNeeded()
+            try writeView(view, to: directory.appendingPathComponent("settings.png"))
         }
     }
 
-    private static func writeView(_ view: NSView, to url: URL, opaqueMenu: Bool = false) throws {
+    /// Render the actual menu's item state using native labels and separators, without
+    /// opening a popup over the user's current work.
+    private static func menuSnapshot(_ menu: NSMenu) -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: CGFloat(menu.items.count * 26 + 20)))
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+        view.layer?.cornerRadius = 10
+        var y = view.bounds.height - 32
+        for item in menu.items {
+            if item.isSeparatorItem {
+                let separator = NSBox(frame: NSRect(x: 12, y: y + 10, width: 306, height: 1))
+                separator.boxType = .separator
+                view.addSubview(separator)
+            } else {
+                let label = NSTextField(labelWithString: (item.state == .on ? "✓ " : "   ") + item.title)
+                label.font = .systemFont(ofSize: 12)
+                label.textColor = item.isEnabled ? .labelColor : .secondaryLabelColor
+                label.frame = NSRect(x: 12, y: y, width: 306, height: 22)
+                view.addSubview(label)
+            }
+            y -= 26
+        }
+        return view
+    }
+
+    static func writeView(_ view: NSView, to url: URL) throws {
+        view.layoutSubtreeIfNeeded()
         guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
             throw RenderingError.bitmapUnavailable
         }
         view.cacheDisplay(in: view.bounds, to: bitmap)
-        let output: NSBitmapImageRep
-        if opaqueMenu {
-            // Vibrancy's backdrop is not part of an owned view snapshot. Supply
-            // a flat menu backing while preserving the native menu foreground.
-            let image = NSImage(size: view.bounds.size)
-            image.lockFocus()
-            NSColor(calibratedWhite: 0.14, alpha: 1).setFill()
-            NSBezierPath(roundedRect: NSRect(origin: .zero, size: view.bounds.size), xRadius: 8, yRadius: 8)
-                .fill()
-            bitmap.draw(in: NSRect(origin: .zero, size: view.bounds.size))
-            image.unlockFocus()
-            guard let data = image.tiffRepresentation, let result = NSBitmapImageRep(data: data) else {
-                throw RenderingError.bitmapUnavailable
-            }
-            output = result
-        } else {
-            output = bitmap
-        }
-        guard let png = output.representation(using: .png, properties: [:]) else {
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
             throw RenderingError.bitmapUnavailable
         }
         try png.write(to: url)

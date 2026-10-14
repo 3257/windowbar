@@ -1,12 +1,15 @@
 import AppKit
 import QuartzCore
+import WindowBarCore
 
-final class WindowButton: NSButton {
+final class WindowButton: ReorderableButton {
     var entry: WindowEntry
     var windowNumber = 1
     var onSelect: ((WindowEntry) -> Void)?
     var onMinimize: ((WindowEntry) -> Void)?
     var onClose: ((WindowEntry) -> Void)?
+    var onHover: ((WindowEntry, WindowButton, Bool) -> Void)?
+    var augmentMenu: ((NSMenu, WindowEntry) -> Void)?
     @objc dynamic var focusAmount: CGFloat = 0 { didSet { needsDisplay = true } }
     @objc dynamic var hoverAmount: CGFloat = 0 { didSet { needsDisplay = true } }
     private var hoverArea: NSTrackingArea?
@@ -15,6 +18,7 @@ final class WindowButton: NSButton {
     init(entry: WindowEntry) {
         self.entry = entry
         super.init(frame: .zero)
+        configureReordering(id: entry.id, kind: .window)
         isBordered = false
         title = ""
         target = self
@@ -42,7 +46,8 @@ final class WindowButton: NSButton {
                 animator().focusAmount = target
             }
         }
-        toolTip = "\(entry.appName) — \(entry.title)\(entry.minimized ? " (minimized)" : "")"
+        let profile = entry.profile.map { " · \($0.name)" } ?? ""
+        toolTip = "\(entry.appName) — \(entry.title)\(profile)\(entry.minimized ? " (minimized)" : "")"
         setAccessibilityLabel(toolTip)
         needsDisplay = true
     }
@@ -67,21 +72,29 @@ final class WindowButton: NSButton {
             animator().hoverAmount = amount
         }
     }
-    override func mouseEntered(with event: NSEvent) { hover(1) }
-    override func mouseExited(with event: NSEvent) { hover(0) }
+    override func mouseEntered(with event: NSEvent) {
+        hover(1)
+        onHover?(entry, self, true)
+    }
+    override func mouseExited(with event: NSEvent) {
+        hover(0)
+        onHover?(entry, self, false)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let box = bounds.insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(roundedRect: box, xRadius: 10, yRadius: 10)
         let focus = min(1, max(0, focusAmount))
         let hover = min(1, max(0, hoverAmount))
-        let fill = NSColor.white.withAlphaComponent(0.055 + hover * 0.075)
-            .blended(withFraction: focus, of: accent.withAlphaComponent(0.32 + hover * 0.08))!
+        let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        let fill = NSColor.labelColor.withAlphaComponent(0.035 + hover * 0.06)
+            .blended(withFraction: focus, of: accent.withAlphaComponent(contrast ? 0.28 : 0.15))!
         fill.setFill()
         path.fill()
-        NSColor.white.withAlphaComponent(0.075 + hover * 0.125).blended(withFraction: focus, of: accent)!
+        NSColor.separatorColor.withAlphaComponent(contrast ? 0.9 : 0.3).blended(
+            withFraction: focus, of: accent.withAlphaComponent(0.5))!
             .setStroke()
-        path.lineWidth = 1 + focus * 0.8
+        path.lineWidth = contrast ? 1.5 : 0.6
         path.stroke()
         let iconOnly = bounds.width < 76
         let compact = bounds.width < 140
@@ -91,6 +104,18 @@ final class WindowButton: NSButton {
         entry.icon?.draw(
             in: NSRect(x: iconX, y: iconY, width: iconSize, height: iconSize), from: .zero,
             operation: .sourceOver, fraction: entry.minimized ? 0.5 : 1, respectFlipped: true, hints: nil)
+        if let profile = entry.profile {
+            let colors: [NSColor] = [
+                .systemBlue, .systemOrange, .systemPurple, .systemGreen, .systemPink, .systemTeal,
+            ]
+            let color = colors[ProfileBadgeMatcher.colorIndex(directory: profile.directory)]
+            let badge = NSRect(x: iconX + iconSize - 8, y: iconY - 2, width: 11, height: 11)
+            color.setFill()
+            NSBezierPath(ovalIn: badge).fill()
+            drawText(
+                String(profile.name.prefix(1)).uppercased(), in: badge.offsetBy(dx: 2, dy: 0), size: 8,
+                weight: .semibold, color: .white)
+        }
         if iconOnly {
             let style = NSMutableParagraphStyle()
             style.alignment = .center
@@ -113,7 +138,7 @@ final class WindowButton: NSButton {
                 color: entry.minimized ? .secondaryLabelColor : .labelColor)
             if subtitle {
                 drawText(
-                    entry.appName + (entry.minimized ? " · Minimized" : ""),
+                    (entry.profile?.name ?? entry.appName) + (entry.minimized ? " · Minimized" : ""),
                     in: NSRect(x: textX, y: 29, width: max(0, bounds.width - textX - 8), height: 15),
                     size: 10, weight: .regular, color: entry.focused ? accent : .secondaryLabelColor)
             }
@@ -127,6 +152,7 @@ final class WindowButton: NSButton {
                     width: indicatorWidth, height: 3), xRadius: 1.5, yRadius: 1.5
             ).fill()
         }
+        drawDropHighlight()
     }
 
     @objc private func selectWindow() { onSelect?(entry) }
@@ -134,6 +160,7 @@ final class WindowButton: NSButton {
     @objc private func closeWindow() { onClose?(entry) }
 
     override func rightMouseDown(with event: NSEvent) {
+        onHover?(entry, self, false)
         let menu = NSMenu()
         let heading = NSMenuItem(title: entry.appName, action: nil, keyEquivalent: "")
         heading.isEnabled = false
@@ -148,6 +175,7 @@ final class WindowButton: NSButton {
             item.target = self
             menu.addItem(item)
         }
+        augmentMenu?(menu, entry)
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 }

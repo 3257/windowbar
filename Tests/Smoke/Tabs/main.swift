@@ -38,7 +38,11 @@ func verify() throws {
     let controls = descendants(barAX)
     let buttons = controls.filter { value($0, kAXRoleAttribute) as? String == kAXButtonRole }
     let targetLabel = "Google Chrome — \(title)"
-    guard let button = buttons.last(where: { value($0, kAXDescriptionAttribute) as? String == targetLabel }),
+    guard
+        let button = buttons.last(where: {
+            let label = value($0, kAXDescriptionAttribute) as? String ?? ""
+            return label == targetLabel || label.hasPrefix(targetLabel + " · ")
+        }),
         let position = value(button, kAXPositionAttribute), let size = value(button, kAXSizeAttribute)
     else {
         throw Failure.check("Temporary Chrome window button not found")

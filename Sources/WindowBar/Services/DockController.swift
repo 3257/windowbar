@@ -149,7 +149,7 @@ final class DockController: DockReplacing {
                 if !alive(pid) {
                     let lock = try transactionLock()
                     defer { withExtendedLifetime(lock) {} }
-                    _ = try restoreUnlocked(backup)
+                    if try restoreUnlocked(backup) { Diagnostics.shared.record(.dockGuardRestored) }
                     return
                 }
                 Thread.sleep(forTimeInterval: 1)

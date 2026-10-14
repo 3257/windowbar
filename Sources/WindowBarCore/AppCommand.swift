@@ -7,6 +7,8 @@ public enum AppCommand: Equatable {
     case screenshots(path: String)
     case guardDock(pid: Int32, token: String)
     case help
+    case selfTest
+    case install
 
     public enum UsageError: Error { case invalidArguments }
 
@@ -17,6 +19,8 @@ public enum AppCommand: Equatable {
         case ["--screenshot-demo"]: return .run(demo: true, screenshots: true)
         case ["--diagnose"]: return .diagnose
         case ["--help"], ["-h"]: return .help
+        case ["--self-test"]: return .selfTest
+        case ["--install"]: return .install
         default:
             if arguments.count == 2, arguments[0] == "--render-preview", !arguments[1].isEmpty {
                 return .preview(path: arguments[1])
