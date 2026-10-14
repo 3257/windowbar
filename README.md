@@ -17,7 +17,7 @@ A native macOS taskbar with **one button per window**. Keep Chrome and Terminal 
 - **Searchable window switcher:** match title, app, and Chrome profile; use arrows and Return, double-click a result, or Escape to dismiss. The search button, menu action, and keyboard shortcut can be disabled; minimized results are optional.
 - **Optional grouping:** app or app + Chrome profile. Click a header to collapse or expand; search still finds all windows, and keyboard selection expands its group. Collapse state lasts until the bar is rebuilt; grouping mode persists.
 - **Hover actions:** Switch, Minimize / Restore, and Close from the nonactivating card. Actions can be disabled while retaining title/thumbnail previews.
-- **Auto-hide:** optional bottom-edge reveal with a configurable 0.2–3 second delay. Menus, hover cards, settings, search, and dragging keep the shelf open. Reduce Motion disables slide animation.
+- **Auto-hide:** optional bottom-edge reveal with a configurable 0.2–3 second delay. Menus, hover cards, settings, search, and dragging keep the shelf open. A small reveal strip stays within its own screen, including stacked displays. Reduce Motion disables fading.
 - **Configurable global shortcuts** for search, next/previous window, and the first nine pinned apps. Registration conflicts retain the previous bindings. Shortcuts start disabled.
 - **Start at login** from the installed app's Settings. Installation stages and verifies the app, and protects running installed copies from replacement.
 - **Diagnostics:** bounded event logs, clean/unclean exit detection, export, and permission status. Logs omit window titles, profile names, URLs, and images.

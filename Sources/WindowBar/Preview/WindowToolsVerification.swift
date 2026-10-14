@@ -161,11 +161,17 @@ enum WindowToolsVerification {
         tick(0)
         tick(1)
         try require(
-            autoHide.hidden && panel.frame.maxY == screen.minY + 4, "Auto-hide did not leave edge strip")
+            autoHide.hidden && panel.frame == autoHide.edgeFrame && panel.ignoresMouseEvents,
+            "Auto-hide did not leave a nonintercepting edge strip")
+        let displayBelow = NSRect(x: screen.minX, y: screen.minY - 800, width: screen.width, height: 800)
+        try require(!panel.frame.intersects(displayBelow), "Hidden bar appeared on the display below")
         autoHide.layout(shownFrame: shown, screenFrame: screen, panel: panel)
         try require(autoHide.hidden, "Refresh revealed hidden bar")
         tick(1.1, point: NSPoint(x: shown.midX, y: screen.minY + 1))
-        try require(!autoHide.hidden && panel.frame == shown, "Bottom edge did not reveal bar")
+        try require(
+            !autoHide.hidden && panel.frame == shown && panel.contentView === bar
+                && !panel.ignoresMouseEvents,
+            "Bottom edge did not restore the interactive bar")
         tick(2)
         tick(3, interaction: true)
         try require(!autoHide.hidden, "Menu/preview/drag interaction did not keep bar open")

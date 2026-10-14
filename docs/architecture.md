@@ -22,7 +22,7 @@ WindowBar uses Swift Package Manager, AppKit, and public macOS Accessibility API
 | `HoverPreviewController` | Intent delay, nonactivating action cards, pointer bridge, and generation cancellation of stale captures/actions |
 | `WindowSearch` / `WindowSwitcherController` | Pure text matching and native keyboard/result selection |
 | `WindowGrouping` / `WindowGroupButton` | Stable app/profile groups with per-bar collapsed state |
-| `AutoHideState` / `BarAutoHideController` | Clock-driven hide policy, per-display frame animation and edge reveal |
+| `AutoHideState` / `BarAutoHideController` | Clock-driven hide policy, per-display fade/strip transitions and edge reveal |
 | `Diagnostics` | Typed, bounded event logs and clean/unclean lifecycle detection |
 | `Views` | Draw and animate the bar; publish user actions through callbacks |
 | `Preview` | Synthetic fixtures, PNG rendering, and a controlled screenshot background |
@@ -42,7 +42,7 @@ The application depends on small `WindowDiscovering`, `WindowActing`, `DockRepla
 - Thumbnails require existing Screen Recording permission and an unambiguous capture target. Capture filters validate the window ID and owning PID. Hover generation checks discard late images; the cache holds one image for at most two seconds.
 - Search reads the existing window snapshot; no second scanner or saved search/title data is introduced. Result refresh preserves valid selection and removes closed windows. The search panel intentionally takes keyboard focus only when opened by the user.
 - Group identity uses the app bundle identifier (fallback app name) and profile directory, keeping separate Chrome instances in the same app group. Unknown profiles stay reachable; repeated display names do not merge distinct directories. Group headers never manipulate windows; selection expands a collapsed group.
-- Auto-hide policy receives pointer/interaction/time input. A timer runs only while auto-hide is enabled and the bar is shown, using read-only pointer polling instead of global event interception. Every display owns its state/frame. Explicit manual hide still restores Dock settings; automatic hide keeps the existing Dock lifecycle untouched.
+- Auto-hide policy receives pointer/interaction/time input. A timer runs only while auto-hide is enabled and the bar is shown, using read-only pointer polling instead of global event interception. Every display owns its state/frame; hidden panels shrink to a nonintercepting strip inside that screen rather than spilling onto a display below. Transition generations cancel obsolete fade completions. Explicit manual hide still restores Dock settings; automatic hide keeps the existing Dock lifecycle untouched.
 - Hover action callbacks use the same window-action services as the row. Generation checks prevent old buttons from acting on a later card. Leaving the source button allows traversal to the interactive card; the pointer monitor dismisses it after departure.
 - Shortcuts are inactive by default. OS registration failure rolls back previous bindings. Settings cannot register login startup before the app is installed.
 - Logs use a separate nonblocking file lock and rotate at approximately 512 KiB. Logging failures do not prevent shutdown or Dock restoration. Events omit content titles, account/profile names, URLs and images.
