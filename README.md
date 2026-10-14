@@ -45,8 +45,8 @@ No third-party packages or application network calls are used. Chrome launches l
 ```sh
 git clone https://github.com/SimeonLGeorgiev/windowbar.git
 cd windowbar
-# Until PR #1 is merged:
-git checkout refactor/maintainable-windowbar
+# Until the daily-use update is merged:
+git checkout feature/quiet-shelf
 zsh build.sh
 build/WindowBar.app/Contents/MacOS/WindowBar --install
 open ~/Applications/WindowBar.app
