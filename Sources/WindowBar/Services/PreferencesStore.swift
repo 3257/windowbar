@@ -18,7 +18,7 @@ final class PreferencesStore {
     }
 
     func save(_ updated: BarPreferences) throws {
-        try ShortcutBinding.validate(updated.shortcuts)
+        try updated.validate()
         let data = try JSONEncoder().encode(updated)
         defaults.set(data, forKey: key)
         value = updated

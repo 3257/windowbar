@@ -30,6 +30,14 @@ final class FeatureCoordinator {
         }
     }
 
+    func navigationEntries(_ entries: [WindowEntry]) -> [WindowEntry] {
+        guard preferences.value.groupingMode != .none else { return entries }
+        let groups = WindowGrouping.groups(
+            entries.map(\.groupingIdentity), mode: preferences.value.groupingMode)
+        let byID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return groups.flatMap(\.windowIDs).compactMap { byID[$0] }
+    }
+
     func moveWindow(_ id: String, before target: String) { order.move(id, before: target) }
     func moveWindow(_ id: String, relativeTo target: String, after: Bool) {
         order.move(id, relativeTo: target, after: after)

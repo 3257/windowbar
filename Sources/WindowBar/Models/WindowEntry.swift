@@ -14,4 +14,12 @@ struct WindowEntry {
     var frame: CGRect? = nil
     var windowID: CGWindowID? = nil
     var profile: ChromeProfile? = nil
+    var groupingIdentity: GroupingWindow {
+        GroupingWindow(
+            id: id, appKey: appIdentity, appName: appName,
+            profileKey: profile?.directory, profileName: profile?.name)
+    }
+    private var appIdentity: String {
+        NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? appName
+    }
 }

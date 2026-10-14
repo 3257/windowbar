@@ -9,6 +9,7 @@ final class WindowButton: ReorderableButton {
     var onMinimize: ((WindowEntry) -> Void)?
     var onClose: ((WindowEntry) -> Void)?
     var onHover: ((WindowEntry, WindowButton, Bool) -> Void)?
+    var onDismissHover: (() -> Void)?
     var augmentMenu: ((NSMenu, WindowEntry) -> Void)?
     @objc dynamic var focusAmount: CGFloat = 0 { didSet { needsDisplay = true } }
     @objc dynamic var hoverAmount: CGFloat = 0 { didSet { needsDisplay = true } }
@@ -160,7 +161,7 @@ final class WindowButton: ReorderableButton {
     @objc private func closeWindow() { onClose?(entry) }
 
     override func rightMouseDown(with event: NSEvent) {
-        onHover?(entry, self, false)
+        onDismissHover?()
         let menu = NSMenu()
         let heading = NSMenuItem(title: entry.appName, action: nil, keyEquivalent: "")
         heading.isEnabled = false

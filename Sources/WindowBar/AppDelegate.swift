@@ -7,6 +7,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var bars: [BarView] = []
     private var statusItem: NSStatusItem?
     private var timer: Timer?
+    private var edgeTimer: Timer?
+    private var autoHideControllers: [BarAutoHideController] = []
+    private var trackingMenus = 0
+    private var switcher: WindowSwitcherController?
     private var scanning = false
     private var entries: [WindowEntry] = []
     private let scanner = DispatchQueue(label: "windowbar.accessibility", qos: .utility)
@@ -67,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             shortcuts.onAction = { [weak self] in self?.performShortcut($0) }
             do {
                 try shortcuts.configure(
-                    features.preferences.value.shortcutsEnabled ? features.preferences.value.shortcuts : [])
+                    features.preferences.value.activeShortcuts)
             } catch { diagnostics.record(.shortcutRegistrationFailed) }
             for value in [SIGTERM, SIGINT, SIGHUP] {
                 signal(value, SIG_IGN)
@@ -83,7 +87,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "WindowBar")
         statusItem?.menu = makeMenu()
         if screenshots { createBackdrop() }
+        previews.onSelect = { [weak self] in self?.select($0) }
+        previews.onMinimize = { [weak self] in self?.minimize($0) }
+        previews.onClose = { [weak self] in self?.closeWindow($0) }
         rebuildPanels()
+        configureAutoHideTimer()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(menuBegan), name: NSMenu.didBeginTrackingNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(menuEnded), name: NSMenu.didEndTrackingNotification, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(rebuildPanels),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -100,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         timer?.invalidate()
+        edgeTimer?.invalidate()
+        switcher?.dismiss()
         previews.hide()
         for source in terminationSignals { source.cancel() }
         if !demo { diagnostics.record(.shutdownRequested) }
@@ -129,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for panel in panels { panel.close() }
         panels = []
         bars = []
+        autoHideControllers = []
         // The first screen is the display with the menu bar, not the focused window's display.
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
         for screen in screens {
@@ -145,6 +160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.hasShadow = true
             panel.title = "WindowBar"
             let bar = BarView(frame: NSRect(origin: .zero, size: frame.size))
+            bar.onSearch = { [weak self] in self?.showSwitcher() }
+            bar.onGroupToggle = { [weak self] in self?.previews.hide() }
             bar.onSelect = { [weak self] in self?.select($0) }
             bar.onMinimize = { [weak self] in self?.minimize($0) }
             bar.onClose = { [weak self] in self?.closeWindow($0) }
@@ -169,7 +186,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bar.onHover = { [weak self] entry, button, entered in
                 guard let self else { return }
                 self.previews.hover(
-                    entry, button: button, entered: entered, mode: self.features.preferences.value.previewMode
+                    entry, button: button, entered: entered,
+                    mode: self.features.preferences.value.previewMode,
+                    actionsEnabled: self.features.preferences.value.hoverActionsEnabled
                 )
             }
             bar.onDragStart = { [weak self] in self?.previews.hide() }
@@ -184,6 +203,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.contentView = bar
             panels.append(panel)
             bars.append(bar)
+            let autoHide = BarAutoHideController()
+            autoHide.layout(shownFrame: frame, screenFrame: screen.frame, panel: panel)
+            autoHideControllers.append(autoHide)
             if !hidden { panel.orderFrontRegardless() }
         }
         render()
@@ -199,9 +221,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func refresh() {
         // Dock size/auto-hide changes need no relaunch.
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
-        for (panel, screen) in zip(panels, screens) {
-            let frame = barFrame(for: screen)
-            if panel.frame != frame { panel.setFrame(frame, display: true) }
+        for (index, screen) in screens.enumerated() where panels.indices.contains(index) {
+            autoHideControllers[index].layout(
+                shownFrame: barFrame(for: screen), screenFrame: screen.frame, panel: panels[index])
         }
         if demo {
             entries = sampleWindows()
@@ -245,20 +267,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         previews.retainOnly(Set(entries.map(\.id)))
         let trusted = demo || AXIsProcessTrusted()
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
-        for (panel, screen) in zip(panels, screens) {
-            let frame = barFrame(for: screen)
-            if panel.frame != frame { panel.setFrame(frame, display: true) }
+        for (index, screen) in screens.enumerated() where panels.indices.contains(index) {
+            autoHideControllers[index].layout(
+                shownFrame: barFrame(for: screen), screenFrame: screen.frame, panel: panels[index])
         }
+        switcher?.update(entries: entries, preferences: features.preferences.value)
+        updateAutoHide()
         let displays = NSScreen.screens.map { DisplayRegion(id: displayID($0), frame: $0.frame) }
         for (bar, screen) in zip(bars, screens) {
             let visible = features.visible(entries, displayID: displayID(screen), displays: displays)
-            bar.update(entries: visible, trusted: trusted, launchers: launchers)
+            bar.update(
+                entries: visible, trusted: trusted, launchers: launchers,
+                preferences: features.preferences.value)
         }
     }
 
     private func select(_ entry: WindowEntry) {
         guard demo || entry.element != nil else { return }
         previews.hide()
+        switcher?.dismiss()
         scanGeneration.invalidate()
         entries = entries.map { existing in
             var updated = existing
@@ -307,6 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             (hidden ? "Show bar" : "Hide bar", #selector(toggleVisibility), ""),
             ("Replace macOS Dock", #selector(toggleDock), ""),
             ("Show on all displays", #selector(toggleDisplays), ""),
+            ("Search windows…", #selector(showSwitcher), ""),
             ("Settings…", #selector(showSettings), ","),
             ("Open Downloads", #selector(openDownloads), ""),
             ("Open Trash", #selector(openTrash), ""),
@@ -317,6 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (title, action, shortcut) in items {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: shortcut)
             item.target = self
+            if action == #selector(showSwitcher) { item.isEnabled = features.preferences.value.searchEnabled }
             if action == #selector(toggleDisplays) { item.state = allDisplays ? .on : .off }
             if action == #selector(toggleDock) { item.state = replacesDock ? .on : .off }
             menu.addItem(item)
@@ -331,6 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleVisibility() {
         previews.hide()
         hidden.toggle()
+        configureAutoHideTimer()
         if hidden {
             dock.restore()
         } else if replacesDock && !demo && AXIsProcessTrusted() {
@@ -390,17 +420,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 let previous = self.features.preferences.value
                 if !self.demo {
-                    try self.shortcuts.configure(updated.shortcutsEnabled ? updated.shortcuts : [])
+                    try self.shortcuts.configure(updated.activeShortcuts)
                 }
                 do { try self.features.preferences.save(updated) } catch {
                     if !self.demo {
-                        try? self.shortcuts.configure(previous.shortcutsEnabled ? previous.shortcuts : [])
+                        try? self.shortcuts.configure(previous.activeShortcuts)
                     }
                     throw error
                 }
                 self.previews.hide()
+                self.configureAutoHideTimer()
                 self.launchers = self.features.preferences.launchers()
                 self.render()
+                self.statusItem?.menu = self.makeMenu()
                 if !self.demo {
                     self.diagnostics.record(
                         previous.shortcuts == updated.shortcuts
@@ -414,6 +446,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings?.present()
     }
 
+    @objc private func showSwitcher() {
+        guard features.preferences.value.searchEnabled else { return }
+        previews.hide()
+        let previousApp = NSWorkspace.shared.frontmostApplication
+        if switcher == nil { switcher = WindowSwitcherController() }
+        switcher?.onSelect = { [weak self] in self?.select($0) }
+        switcher?.onCancel = {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier
+                == ProcessInfo.processInfo.processIdentifier
+            {
+                previousApp?.activate(options: [])
+            }
+        }
+        switcher?.update(entries: entries, preferences: features.preferences.value)
+        switcher?.present()
+    }
+
+    @objc private func menuBegan() { trackingMenus += 1 }
+    @objc private func menuEnded() { trackingMenus = max(0, trackingMenus - 1) }
+
+    private func configureAutoHideTimer() {
+        edgeTimer?.invalidate()
+        edgeTimer = nil
+        guard features.preferences.value.autoHideEnabled, !hidden else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateAutoHide() }
+        edgeTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func updateAutoHide() {
+        guard !hidden else { return }
+        let value = features.preferences.value
+        let point = NSEvent.mouseLocation
+        for (panel, controller) in zip(panels, autoHideControllers) {
+            let interacting =
+                trackingMenus > 0 || settings?.window?.isVisible == true
+                || switcher?.window?.isVisible == true
+                || previews.interactionFrame?.contains(point) == true
+                || (!controller.hidden && NSEvent.pressedMouseButtons != 0)
+            controller.update(
+                panel: panel, enabled: value.autoHideEnabled, delay: value.autoHideDelay,
+                pointer: point, interaction: interacting, now: ProcessInfo.processInfo.systemUptime)
+        }
+    }
+
     private func changePins(_ change: () throws -> Void) {
         do {
             try change()
@@ -424,6 +501,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func performShortcut(_ action: ShortcutAction) {
+        if action == .searchWindows {
+            showSwitcher()
+            return
+        }
         if let index = action.pinnedIndex {
             guard launchers.indices.contains(index) else { return }
             NSWorkspace.shared.open(launchers[index].url)
@@ -438,7 +519,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 displayID($0)
             }
             ?? CGMainDisplayID()
-        let visible = features.visible(entries, displayID: screenID, displays: regions)
+        let visible = features.navigationEntries(
+            features.visible(entries, displayID: screenID, displays: regions))
         guard
             let index = ShortcutBinding.cycleIndex(
                 count: visible.count, focusedIndex: visible.firstIndex(where: \.focused),

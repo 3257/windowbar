@@ -248,6 +248,7 @@ enum FeatureVerification {
             "Application shutdown did not finish its diagnostic session")
         print("PASS: application shutdown restores Dock and finishes diagnostics through injected services")
         try FeatureViewVerification.run(features: features, directory: directory)
+        try WindowToolsVerification.run(features: features, directory: directory)
         print("PASS: all feature service and native UI checks completed without changing the running desktop")
     }
 }

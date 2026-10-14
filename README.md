@@ -14,7 +14,11 @@ A native macOS taskbar with **one button per window**. Keep Chrome and Terminal 
 - **Every Chrome profile directly in its pinned-app menu.** Selecting one opens a new window in it. Native New Window/New Tab commands, window lists, Hide/Show, Quit, and Show in Finder remain available.
 - **Display filtering:** show all windows or only windows on each bar's display. A spanning window belongs to the display containing its largest area. Windows without usable bounds remain reachable on every display.
 - **Hover cards:** full title and profile by default; optional window thumbnails through ScreenCaptureKit. Missing permission, minimized windows, and ambiguous capture targets fall back to titles.
-- **Configurable global shortcuts** for next/previous window and the first nine pinned apps. Registration conflicts retain the previous bindings. Shortcuts start disabled.
+- **Searchable window switcher:** match title, app, and Chrome profile; use arrows and Return, double-click a result, or Escape to dismiss. The search button, menu action, and keyboard shortcut can be disabled; minimized results are optional.
+- **Optional grouping:** app or app + Chrome profile. Click a header to collapse or expand; search still finds all windows, and keyboard selection expands its group. Collapse state lasts until the bar is rebuilt; grouping mode persists.
+- **Hover actions:** Switch, Minimize / Restore, and Close from the nonactivating card. Actions can be disabled while retaining title/thumbnail previews.
+- **Auto-hide:** optional bottom-edge reveal with a configurable 0.2–3 second delay. Menus, hover cards, settings, search, and dragging keep the shelf open. Reduce Motion disables slide animation.
+- **Configurable global shortcuts** for search, next/previous window, and the first nine pinned apps. Registration conflicts retain the previous bindings. Shortcuts start disabled.
 - **Start at login** from the installed app's Settings. Installation stages and verifies the app, and protects running installed copies from replacement.
 - **Diagnostics:** bounded event logs, clean/unclean exit detection, export, and permission status. Logs omit window titles, profile names, URLs, and images.
 - Optional bars on every display, and temporary Dock replacement with restoration on hide, quit, or force-quit.
@@ -28,6 +32,14 @@ These images render the app's own offscreen AppKit views with sample titles/prof
 ![Chrome context menu with four sample profiles](docs/screenshots/chrome-menu.png)
 
 ![General settings](docs/screenshots/settings.png)
+
+![Search by title, app or profile](docs/screenshots/search.png)
+
+![App and Chrome profile grouping](docs/screenshots/grouping.png)
+
+![Hover window actions](docs/screenshots/hover-actions.png)
+
+![Configurable window tools](docs/screenshots/behavior.png)
 
 [Interactive design study](docs/design/mockups.html) · [Design decisions](docs/design/README.md)
 
@@ -45,8 +57,8 @@ No third-party packages or application network calls are used. Chrome launches l
 ```sh
 git clone https://github.com/SimeonLGeorgiev/windowbar.git
 cd windowbar
-# Until the daily-use update is merged:
-git checkout feature/quiet-shelf
+# Until the window tools update is merged:
+git checkout feature/window-tools
 zsh build.sh
 build/WindowBar.app/Contents/MacOS/WindowBar --install
 open ~/Applications/WindowBar.app
@@ -69,12 +81,17 @@ Enable thumbnails in **Settings → General → Hover previews**, then use **Ena
 | Right-click a window | Switch, minimize/restore, close, pin its app, move, or choose a Chrome profile badge |
 | Right-click a pinned app | Native app actions, its windows, move, or unpin |
 | Right-click Chrome → profile | Open a new window in that profile |
-| Hover a window | Full title/profile, with an optional thumbnail |
+| Hover a window | Full title/profile, optional thumbnail, and configurable window actions |
+| Click the search icon | Search windows by title, app, and profile |
+| Click a group header | Collapse or expand that app/profile group |
+| Move to the bottom screen edge | Reveal the bar when auto-hide is enabled |
 | Scroll over the windows or pins | Reach overflow items without a second row |
-| **⋯** or menu bar icon → Settings | General, Pinned Apps, Shortcuts, and Diagnostics |
+| **⋯** or menu bar icon → Settings | General, Behavior, Pinned Apps, Shortcuts, and Diagnostics |
 | Settings → Shortcuts | Enable shortcuts and click a combination to record it; Escape cancels |
 
-Default shortcuts are **Control–Command–Left/Right** for previous/next window and **Control–Command–1…9** for pinned apps. They remain inactive until enabled. Keyboard window navigation follows the selected display filter and reveals the selected button in the row.
+Default shortcuts are **Control–Command–Left/Right** for previous/next window and **Control–Command–1…9** for pinned apps. **Control–Command–Space** opens search. All global shortcuts remain inactive until enabled. Keyboard window navigation follows the selected display filter and reveals the selected button in the row.
+
+**Settings → Behavior** configures search, minimized search results, grouping, hover actions, auto-hide, and hide delay. Grouping and auto-hide start off. Search and hover actions start on; title-only previews remain the default. Search covers windows from all displays even when each bar filters its row. If an existing customized shortcut uses the new search combination, it is preserved; choose a different search binding under Shortcuts.
 
 **Show on all displays** controls where bars appear. **Settings → General → Windows to show** controls each bar's window list. Profile overrides and window ordering are session state; persistent pins and preferences are separate from Dock settings.
 
@@ -92,7 +109,7 @@ zsh scripts/smoke.sh isolated
 xcrun swift-format lint --strict --recursive Sources Tests Package.swift
 ```
 
-The isolated checks exercise all seven feature areas with temporary preferences/files, fake login/hotkey/capture backends, native controls and drag/drop callbacks, hover cancellation, and light/dark rendering. All windows stay offscreen; the wrapper verifies that the running taskbar PID, Dock snapshot, and Dock preferences remain intact. It does not activate Chrome/Terminal, register live shortcuts/login items, request permissions, or capture the desktop.
+The isolated checks exercise the daily-use features and all four window tools with temporary preferences/files, fake login/hotkey/capture backends, native controls and drag/drop callbacks, hover cancellation, and light/dark rendering. All windows stay offscreen; the wrapper verifies that the running taskbar PID, Dock snapshot, and Dock preferences remain intact. It does not activate Chrome/Terminal, register live shortcuts/login items, request permissions, or capture the desktop.
 
 For a detached developer launch, use `python3 scripts/run.py`. It starts the built app in its own process session and redirects output to `~/Library/Logs/WindowBar/app.log`. For everyday use, open the installed app from Finder.
 
@@ -112,7 +129,7 @@ zsh scripts/smoke.sh lifetime
 
 Browser checks create isolated blank windows and close their own windows afterward. Terminal follows the current Accessibility handle as tabs change and closes its created window IDs. Lifecycle checks verify exact Dock restoration and survival after closing the launching process group. Failures return a nonzero status.
 
-Actual login registration, real thumbnail capture, global shortcut delivery, and physical monitor attach/detach should also be checked on an installed copy when desktop testing is appropriate; isolated backend checks do not establish those OS integrations.
+Actual login registration, real thumbnail capture, global shortcut delivery, physical monitor attach/detach, and auto-hide with physical pointer/Space transitions should also be checked on an installed copy when desktop testing is appropriate; isolated backend checks do not establish those OS integrations.
 
 ### Diagnostics and documentation
 

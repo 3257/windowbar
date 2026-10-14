@@ -8,6 +8,13 @@ final class BarView: NSVisualEffectView {
     let scroll = HorizontalScrollView()
     let document = NSView()
     let menuButton = NSButton()
+    let searchButton = NSButton()
+    private var preferences = BarPreferences()
+    private var groups: [WindowGroup] = []
+    private var groupButtons: [String: WindowGroupButton] = [:]
+    private var collapsedGroups = Set<String>()
+    private var displayViews: [NSView] = []
+    private var displayFocus: [Bool] = []
     let permissionButton = NSButton(title: "Enable Accessibility", target: nil, action: nil)
     let message = NSTextField(labelWithString: "")
     private let divider = NSBox()
@@ -16,6 +23,8 @@ final class BarView: NSVisualEffectView {
     private var launchers: [LauncherEntry] = []
     private var launcherButtons: [String: LauncherButton] = [:]
     private var trusted = false
+    var onSearch: (() -> Void)?
+    var onGroupToggle: (() -> Void)?
     var onSelect: ((WindowEntry) -> Void)?
     var onMinimize: ((WindowEntry) -> Void)?
     var onClose: ((WindowEntry) -> Void)?
@@ -53,6 +62,13 @@ final class BarView: NSVisualEffectView {
         menuButton.isBordered = false
         menuButton.toolTip = "WindowBar settings"
         addSubview(menuButton)
+        searchButton.image = NSImage(
+            systemSymbolName: "magnifyingglass", accessibilityDescription: "Search windows")
+        searchButton.isBordered = false
+        searchButton.toolTip = "Search windows"
+        searchButton.target = self
+        searchButton.action = #selector(searchWindows)
+        addSubview(searchButton)
         permissionButton.bezelStyle = .rounded
         permissionButton.contentTintColor = accent
         addSubview(permissionButton)
@@ -63,7 +79,13 @@ final class BarView: NSVisualEffectView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(entries: [WindowEntry], trusted: Bool, launchers: [LauncherEntry] = []) {
+    func update(
+        entries: [WindowEntry], trusted: Bool, launchers: [LauncherEntry] = [],
+        preferences: BarPreferences = BarPreferences()
+    ) {
+        if self.preferences.groupingMode != preferences.groupingMode { collapsedGroups.removeAll() }
+        self.preferences = preferences
+        searchButton.isHidden = !preferences.searchEnabled
         self.entries = entries
         self.launchers = launchers
         self.trusted = trusted
@@ -108,6 +130,7 @@ final class BarView: NSVisualEffectView {
                 button.onClose = { [weak self] in self?.onClose?($0) }
                 button.onReorder = { [weak self] in self?.onWindowReorder?($0, $1, $2) }
                 button.onHover = { [weak self] in self?.onHover?($0, $1, $2) }
+                button.onDismissHover = { [weak self] in self?.onDragStart?() }
                 button.onDragStart = { [weak self] in self?.onDragStart?() }
                 button.augmentMenu = { [weak self] in self?.augmentWindowMenu?($0, $1) }
                 buttons[entry.id] = button
@@ -118,6 +141,7 @@ final class BarView: NSVisualEffectView {
             button.windowNumber = windowNumbers[group, default: 1]
             if onHover != nil { button.toolTip = nil }
         }
+        rebuildGroups()
         permissionButton.isHidden = trusted
         scroll.isHidden = !trusted || entries.isEmpty
         message.isHidden = trusted && !entries.isEmpty
@@ -130,7 +154,8 @@ final class BarView: NSVisualEffectView {
     override func layout() {
         super.layout()
         let launcherWidth = min(CGFloat(launchers.count) * 38, min(220, bounds.width * 0.25))
-        let left: CGFloat = 12
+        let left: CGFloat = preferences.searchEnabled ? 46 : 12
+        searchButton.frame = NSRect(x: 12, y: bounds.height / 2 - 16, width: 26, height: 32)
         let middle = bounds.height / 2
         let launcherX = bounds.width - 54 - launcherWidth
         launchScroll.frame = NSRect(x: launcherX, y: middle - 18, width: launcherWidth, height: 36)
@@ -146,7 +171,7 @@ final class BarView: NSVisualEffectView {
             x: left, y: 7,
             width: max(0, bounds.width - left - 60 - launcherWidth - (launchers.isEmpty ? 0 : 12)),
             height: bounds.height - 14)
-        let geometry = BarLayout(availableWidth: Double(scroll.bounds.width), focused: entries.map(\.focused))
+        let geometry = BarLayout(availableWidth: Double(scroll.bounds.width), focused: displayFocus)
         let oldX = scroll.contentView.bounds.minX
         document.frame = NSRect(x: 0, y: 0, width: geometry.documentWidth, height: scroll.bounds.height)
         NSAnimationContext.runAnimationGroup { context in
@@ -154,9 +179,9 @@ final class BarView: NSVisualEffectView {
                 window?.isVisible == true && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             context.duration = animate ? 0.22 : 0
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            for (entry, position) in zip(entries, geometry.buttons) {
+            for (button, position) in zip(displayViews, geometry.buttons) {
                 let frame = NSRect(x: position.x, y: 0, width: position.width, height: BarLayout.buttonHeight)
-                if let button = buttons[entry.id] {
+                do {
                     if !animate || button.frame.isEmpty {
                         button.frame = frame
                     } else if button.frame != frame {
@@ -197,7 +222,70 @@ final class BarView: NSVisualEffectView {
 
     func revealWindow(_ id: String) {
         guard let button = buttons[id] else { return }
+        if let group = groups.first(where: { $0.windowIDs.contains(id) }),
+            collapsedGroups.remove(group.key) != nil
+        {
+            rebuildGroups()
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+        }
         document.scrollToVisible(button.frame)
     }
 
+    @objc private func searchWindows() { onSearch?() }
+
+    private func rebuildGroups() {
+        groups = WindowGrouping.groups(entries.map(\.groupingIdentity), mode: preferences.groupingMode)
+        let keys = Set(groups.map(\.key))
+        collapsedGroups.formIntersection(keys)
+        for key in Array(groupButtons.keys) where !keys.contains(key) {
+            groupButtons.removeValue(forKey: key)?.removeFromSuperview()
+        }
+        displayViews = []
+        displayFocus = []
+        for button in buttons.values { button.isHidden = true }
+        if preferences.groupingMode == .none {
+            for entry in entries {
+                if let button = buttons[entry.id] {
+                    button.isHidden = false
+                    displayViews.append(button)
+                    displayFocus.append(entry.focused)
+                }
+            }
+            return
+        }
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        for group in groups {
+            let button = groupButtons[group.key] ?? WindowGroupButton()
+            groupButtons[group.key] = button
+            if button.superview == nil { document.addSubview(button) }
+            let collapsed = collapsedGroups.contains(group.key)
+            let focused = group.windowIDs.contains { byID[$0]?.focused == true }
+            let label =
+                preferences.groupingMode == .appAndProfile
+                ? group.windowIDs.first.flatMap { byID[$0]?.profile?.name } ?? group.title : group.title
+            button.title = "\(collapsed ? "▸" : "▾") \(label) · \(group.windowIDs.count)"
+            button.toolTip =
+                "\(collapsed ? "Expand" : "Collapse") \(group.title), \(group.windowIDs.count) windows"
+            button.setAccessibilityLabel(button.toolTip)
+            button.contentTintColor = focused ? accent : .secondaryLabelColor
+            button.onToggle = { [weak self] in
+                guard let self else { return }
+                if !self.collapsedGroups.insert(group.key).inserted { self.collapsedGroups.remove(group.key) }
+                self.onGroupToggle?()
+                self.rebuildGroups()
+                self.needsLayout = true
+            }
+            displayViews.append(button)
+            displayFocus.append(collapsed && focused)
+            if !collapsed {
+                for id in group.windowIDs {
+                    guard let window = buttons[id] else { continue }
+                    window.isHidden = false
+                    displayViews.append(window)
+                    displayFocus.append(window.entry.focused)
+                }
+            }
+        }
+    }
 }

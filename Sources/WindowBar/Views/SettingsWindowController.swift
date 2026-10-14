@@ -16,6 +16,17 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     let preview = NSPopUpButton()
     let shortcutsToggle = NSButton(
         checkboxWithTitle: "Enable global keyboard shortcuts", target: nil, action: nil)
+    let searchToggle = NSButton(
+        checkboxWithTitle: "Enable searchable window switcher", target: nil, action: nil)
+    let minimizedToggle = NSButton(
+        checkboxWithTitle: "Include minimized windows in search", target: nil, action: nil)
+    let grouping = NSPopUpButton()
+    let hoverActionsToggle = NSButton(
+        checkboxWithTitle: "Show Switch, Minimize / Restore, and Close on hover", target: nil, action: nil)
+    let autoHideToggle = NSButton(
+        checkboxWithTitle: "Auto-hide at the bottom screen edge", target: nil, action: nil)
+    let hideDelay = NSSlider(value: 0.8, minValue: 0.2, maxValue: 3, target: nil, action: nil)
+    let hideDelayLabel = NSTextField(labelWithString: "")
     let pinnedTable = NSTableView()
     let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let shortcutRows = NSStackView()
@@ -48,6 +59,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         errorLabel.frame = NSRect(x: 24, y: 14, width: 570, height: 42)
         window.contentView?.addSubview(errorLabel)
         generalPage()
+        behaviorPage()
         pinnedPage()
         shortcutsPage()
         diagnosticsPage()
@@ -124,6 +136,36 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             .secondaryLabelColor
     }
 
+    private func behaviorPage() {
+        let view = page("Behavior")
+        for (button, y) in [
+            (searchToggle, 366.0), (minimizedToggle, 332.0),
+            (hoverActionsToggle, 226.0), (autoHideToggle, 166.0),
+        ] {
+            button.frame = NSRect(x: 20, y: y, width: 520, height: 26)
+            button.target = self
+            button.action = #selector(changeBehavior)
+            view.addSubview(button)
+        }
+        label("Window grouping", y: 266, in: view)
+        grouping.addItems(withTitles: ["None — individual windows", "By app", "By app and Chrome profile"])
+        grouping.frame = NSRect(x: 220, y: 279, width: 310, height: 28)
+        grouping.target = self
+        grouping.action = #selector(changeBehavior)
+        view.addSubview(grouping)
+        label("Hide delay", y: 110, in: view)
+        hideDelay.frame = NSRect(x: 160, y: 126, width: 260, height: 24)
+        hideDelay.target = self
+        hideDelay.action = #selector(changeBehavior)
+        view.addSubview(hideDelay)
+        hideDelayLabel.frame = NSRect(x: 438, y: 126, width: 90, height: 24)
+        view.addSubview(hideDelayLabel)
+        label(
+            "Click a group header to collapse or expand it. Search and keyboard switching still reach every window. Move to the bottom edge to reveal an auto-hidden bar; menus and previews keep it open.",
+            y: 36, in: view
+        ).frame.size.height = 70
+    }
+
     private func pinnedPage() {
         let view = page("Pinned Apps")
         let scroll = NSScrollView(frame: NSRect(x: 20, y: 78, width: 520, height: 312))
@@ -189,6 +231,15 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         scope.selectItem(at: value.windowScope == .allDisplays ? 0 : 1)
         preview.selectItem(at: value.previewMode == .titles ? 0 : 1)
         shortcutsToggle.state = value.shortcutsEnabled ? .on : .off
+        searchToggle.state = value.searchEnabled ? .on : .off
+        minimizedToggle.state = value.searchIncludesMinimized ? .on : .off
+        minimizedToggle.isEnabled = value.searchEnabled
+        grouping.selectItem(at: BarPreferences.GroupingMode.allCases.firstIndex(of: value.groupingMode) ?? 0)
+        hoverActionsToggle.state = value.hoverActionsEnabled ? .on : .off
+        autoHideToggle.state = value.autoHideEnabled ? .on : .off
+        hideDelay.doubleValue = value.autoHideDelay
+        hideDelay.isEnabled = value.autoHideEnabled
+        hideDelayLabel.stringValue = String(format: "%.1f seconds", value.autoHideDelay)
         startupToggle.isEnabled = startup.status != .needsInstallation && startup.status != .unavailable
         startupToggle.state =
             startup.status == .enabled ? .on : (startup.status == .requiresApproval ? .mixed : .off)
@@ -215,21 +266,35 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             shortcutRows.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        for binding in value.shortcuts {
+        var bindings = value.shortcuts
+        if !bindings.contains(where: { $0.action == .searchWindows }),
+            let searchBinding = ShortcutBinding.defaults.first(where: { $0.action == .searchWindows })
+        {
+            bindings.append(searchBinding)
+        }
+        for binding in bindings {
             let title =
                 binding.action == .nextWindow
                 ? "Next window"
                 : binding.action == .previousWindow
-                    ? "Previous window" : "Pinned app \((binding.action.pinnedIndex ?? 0) + 1)"
+                    ? "Previous window"
+                    : binding.action == .searchWindows
+                        ? "Search windows" : "Pinned app \((binding.action.pinnedIndex ?? 0) + 1)"
             let field = NSTextField(labelWithString: title)
             field.frame = NSRect(x: 0, y: 0, width: 220, height: 24)
             let recorder = ShortcutRecorderButton(binding: binding)
+            if !value.shortcuts.contains(where: { $0.action == binding.action }) {
+                recorder.title = "Set shortcut…"
+                recorder.toolTip = "Choose a combination; the default conflicts with an existing shortcut."
+            }
             recorder.frame = NSRect(x: 0, y: 0, width: 180, height: 28)
             recorder.onRecord = { [weak self] updated in
                 guard let self else { return }
                 var value = self.features.preferences.value
                 if let index = value.shortcuts.firstIndex(where: { $0.action == updated.action }) {
                     value.shortcuts[index] = updated
+                } else {
+                    value.shortcuts.append(updated)
                 }
                 try self.save(value)
             }
@@ -256,6 +321,20 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             ?? "This change could not be saved. Try another setting or shortcut."
         onError?(error)
         refresh()
+    }
+
+    @objc func changeBehavior() {
+        var value = features.preferences.value
+        value.searchEnabled = searchToggle.state == .on
+        value.searchIncludesMinimized = minimizedToggle.state == .on
+        value.groupingMode = BarPreferences.GroupingMode.allCases[max(0, grouping.indexOfSelectedItem)]
+        value.hoverActionsEnabled = hoverActionsToggle.state == .on
+        value.autoHideEnabled = autoHideToggle.state == .on
+        value.autoHideDelay = hideDelay.doubleValue
+        do {
+            try save(value)
+            refresh()
+        } catch { failed(error) }
     }
 
     @objc func changeScope() {
