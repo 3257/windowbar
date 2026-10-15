@@ -6,10 +6,10 @@ import XCTest
 final class PinsPeekAttentionTests: XCTestCase {
     func testPinnedSideDefaultsRightAndAllNewPreferencesPersist() throws {
         var preferences = try JSONDecoder().decode(BarPreferences.self, from: Data("{}".utf8))
-        XCTAssertEqual(preferences.pinnedSide, .right)
+        XCTAssertEqual(preferences.pinnedSide, .left)
         XCTAssertTrue(preferences.hoverPeekEnabled)
         XCTAssertEqual(preferences.notificationMode, .badgesAndPulse)
-        preferences.pinnedSide = .left
+        preferences.pinnedSide = .right
         preferences.hoverPeekEnabled = false
         preferences.notificationMode = .off
         XCTAssertEqual(

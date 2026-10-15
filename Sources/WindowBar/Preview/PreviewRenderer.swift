@@ -109,7 +109,8 @@ enum PreviewRenderer {
         grouped.blendingMode = .withinWindow
         grouped.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
         try writeView(grouped, to: directory.appendingPathComponent("grouping.png"))
-        if let button = FeatureViewVerification.descendants(grouped).compactMap({ $0 as? WindowButton }).first
+        if let button = FeatureViewVerification.descendants(grouped).compactMap({ $0 as? WindowButton })
+            .first(where: { !$0.entry.focused })
         {
             let hover = HoverPreviewController(showWindows: false)
             hover.hover(button.entry, button: button, entered: true, mode: .titles, actionsEnabled: true)

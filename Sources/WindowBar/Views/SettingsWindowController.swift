@@ -189,7 +189,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     private func pinnedPage() {
         let view = page("Pinned Apps")
         label("Pinned apps position", y: 348, in: view)
-        pinnedSide.addItems(withTitles: ["Right (default)", "Left"])
+        pinnedSide.addItems(withTitles: ["Right", "Left (default)"])
         pinnedSide.frame = NSRect(x: 270, y: 364, width: 260, height: 28)
         pinnedSide.target = self
         pinnedSide.action = #selector(changePinnedSide)

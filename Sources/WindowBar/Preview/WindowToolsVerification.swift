@@ -104,7 +104,7 @@ enum WindowToolsVerification {
 
         let hover = HoverPreviewController(
             provider: FeatureViewVerification.DeferredPreview(), showWindows: false)
-        let target = windows.first { !$0.entry.minimized }!
+        let target = windows.first { !$0.entry.minimized && !$0.entry.focused }!
         var actions: [String] = []
         hover.onSelect = { actions.append("select:" + $0.id) }
         hover.onMinimize = { actions.append("minimize:" + $0.id) }

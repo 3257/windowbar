@@ -247,6 +247,7 @@ enum FeatureVerification {
                 atPath: lifecycleLog.directory.appendingPathComponent("session.json").path),
             "Application shutdown did not finish its diagnostic session")
         print("PASS: application shutdown restores Dock and finishes diagnostics through injected services")
+        try ChromeProfileVerification.run()
         try FeatureViewVerification.run(features: features, directory: directory)
         try WindowToolsVerification.run(features: features, directory: directory)
         try PinsPeekVerification.run(features: features, directory: directory)

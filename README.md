@@ -6,19 +6,21 @@ A native macOS taskbar with one button per open window. Find and switch windows 
 
 ## Install
 
-Download the [WindowBar.app.zip](https://github.com/SimeonLGeorgiev/windowbar/raw/refs/heads/main/downloads/WindowBar.app.zip) app bundle. It supports Apple silicon and Intel, so you do not need Xcode or Swift to install it.
+Download [WindowBar.dmg](https://github.com/SimeonLGeorgiev/windowbar/raw/refs/heads/main/downloads/WindowBar.dmg). It supports Apple silicon and Intel and installs without Xcode or Swift.
 
-Unzip the download, move `WindowBar.app` to **Applications**, and open it. If macOS warns that it cannot verify the developer, Control-click the app, choose **Open**, then confirm. This build is ad-hoc signed and is not notarized.
+Open the DMG, drag **WindowBar** onto **Applications**, then launch it from Applications. If macOS blocks it, use **System Settings → Privacy & Security → Open Anyway**, following [Apple’s instructions](https://support.apple.com/en-us/102445). This build is ad-hoc signed and is not notarized.
 
-On first launch, allow WindowBar under **System Settings → Privacy & Security → Accessibility** so it can find and switch windows. Screen Recording access is optional; it enables thumbnails and full-size hover peeks. Turn on **Start at login** in WindowBar Settings if you want it to open when you sign in.
+**Permissions:** Enable WindowBar in **System Settings → Privacy & Security → Accessibility** so it can list, switch, and resize windows above the taskbar. Approve macOS’s Touch ID or password prompt when asked. If the bar cannot control windows after an update, quit WindowBar, remove its old entry with **−**, reopen it, and enable the new entry. Screen Recording access is optional; it enables thumbnails and full-size hover peeks. Restart WindowBar after changing permissions.
+
+Turn on **Start at login** in WindowBar Settings to open it when you sign in.
 
 ## Features
 
 - **One button per window:** click to switch, drag to reorder, or scroll when the row fills.
 - **Chrome profiles:** identify profile windows and open a new window from a profile menu.
 - **Search and grouping:** find windows by title, app, or profile; group them by app or profile.
-- **Hover previews:** see a thumbnail and window actions, or pause 0.6 seconds for a full-size peek.
-- **Personalize the bar:** pin apps on either side, use multiple displays, enable auto-hide, shortcuts, or unread badges.
+- **Hover previews:** hover an inactive window for a thumbnail and actions, or pause 0.6 seconds for a full-size peek. Hovering the selected window does nothing.
+- **Personalize the bar:** pinned apps start on the left; choose either side, use multiple displays, enable auto-hide, shortcuts, or unread badges. Terminal bell alerts appear only on its pinned icon.
 - **Desktop fit:** maximized windows stop above the taskbar so bottom controls stay accessible.
 - **Optional Dock replacement:** off by default and restored when WindowBar quits.
 

@@ -6,6 +6,16 @@ public enum ProfileBadgeMatcher {
         let text = controlText.trimmingCharacters(in: .whitespacesAndNewlines)
         let candidates = profiles.filter {
             text == $0.name || text == "Profile: \($0.name)" || text == "Profile (\($0.name))"
+                || (text.hasSuffix(" (\($0.name))") && text.count > $0.name.count + 3)
+        }
+        return candidates.count == 1 ? candidates.first : nil
+    }
+
+    /// Chrome's Profiles menu can append an account in parentheses to a profile name.
+    public static func matchMenuItem(_ title: String, profiles: [ChromeProfile]) -> ChromeProfile? {
+        let text = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates = profiles.filter {
+            text == $0.name || (text.hasPrefix($0.name + " (") && text.hasSuffix(")"))
         }
         return candidates.count == 1 ? candidates.first : nil
     }

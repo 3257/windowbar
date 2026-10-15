@@ -70,7 +70,8 @@ enum FeatureViewVerification {
         let buttons = descendants(bar).compactMap { $0 as? WindowButton }
         let pins = descendants(bar).compactMap { $0 as? LauncherButton }
         try require(buttons.count == 5 && pins.count == 2, "Native bar did not render all entries")
-        try require(bar.launchScroll.frame.minX > bar.scroll.frame.maxX, "Pinned apps are not on the right")
+        try require(
+            bar.launchScroll.frame.maxX < bar.scroll.frame.minX, "Default pinned apps are not on the left")
         try require(!panel.canBecomeKey && !panel.canBecomeMain, "Taskbar would steal keyboard focus")
         let focused = buttons.first { $0.entry.focused }!
         let normal = buttons.first { !$0.entry.focused }!
@@ -80,7 +81,7 @@ enum FeatureViewVerification {
         try require(
             focused.accessibilityLabel()?.contains("Work") == true,
             "Profile name is missing from accessibility")
-        print("PASS: native Quiet Shelf layout, trailing pins, focus size, and profile accessibility")
+        print("PASS: native Quiet Shelf layout, leading pins, focus size, and profile accessibility")
 
         var selected: String?
         bar.onSelect = { selected = $0.id }
@@ -133,7 +134,7 @@ enum FeatureViewVerification {
 
         let deferred = DeferredPreview()
         let hover = HoverPreviewController(provider: deferred, showWindows: false)
-        let target = crowdedButtons[0]
+        let target = crowdedButtons.first { !$0.entry.focused }!
         hover.hover(target.entry, button: target, entered: true, mode: .thumbnails)
         wait(0.52)
         try require(
