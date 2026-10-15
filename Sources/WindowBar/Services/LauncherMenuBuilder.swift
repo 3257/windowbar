@@ -11,13 +11,16 @@ protocol LauncherMenuProviding {
 final class LauncherMenuBuilder: LauncherMenuProviding {
     private let profiles: ChromeProfileProviding
     private let profileLauncher: ChromeProfileLauncher
+    private let terminalLauncher: TerminalWindowLauncher
 
     init(
         profiles: ChromeProfileProviding = ChromeProfileStore(),
-        profileLauncher: ChromeProfileLauncher = ChromeProfileLauncher()
+        profileLauncher: ChromeProfileLauncher = ChromeProfileLauncher(),
+        terminalLauncher: TerminalWindowLauncher = TerminalWindowLauncher()
     ) {
         self.profiles = profiles
         self.profileLauncher = profileLauncher
+        self.terminalLauncher = terminalLauncher
     }
     private func runningApplication(for launcher: LauncherEntry) -> NSRunningApplication? {
         guard let identifier = Bundle(url: launcher.url)?.bundleIdentifier else { return nil }
@@ -51,6 +54,13 @@ final class LauncherMenuBuilder: LauncherMenuProviding {
                 }
             }
         }
+        item.keyEquivalent = (attribute(element, kAXMenuItemCmdCharAttribute) as? String ?? "").lowercased()
+        let modifiers = (attribute(element, kAXMenuItemCmdModifiersAttribute) as? NSNumber)?.uint32Value ?? 0
+        var flags: NSEvent.ModifierFlags = modifiers & 8 == 0 ? [.command] : []
+        if modifiers & 1 != 0 { flags.insert(.shift) }
+        if modifiers & 2 != 0 { flags.insert(.option) }
+        if modifiers & 4 != 0 { flags.insert(.control) }
+        item.keyEquivalentModifierMask = flags
         item.isEnabled = (attribute(element, kAXEnabledAttribute) as? Bool) ?? true
         if let nativeSubmenu = children(element).first(where: {
             attribute($0, kAXRoleAttribute) as? String == kAXMenuRole
@@ -82,7 +92,11 @@ final class LauncherMenuBuilder: LauncherMenuProviding {
                 guard let title = attribute(element, kAXTitleAttribute) as? String,
                     title.hasPrefix("New "), let item = nativeMenuItem(element, app: app)
                 else { continue }
-                result.append(item)
+                if app.bundleIdentifier == "com.apple.Terminal" {
+                    result += TerminalMenuDefaults.actions(from: item)
+                } else {
+                    result.append(item)
+                }
             }
         }
         return result
@@ -97,6 +111,10 @@ final class LauncherMenuBuilder: LauncherMenuProviding {
         heading.isEnabled = false
         menu.addItem(heading)
         menu.addItem(.separator())
+        if Bundle(url: launcher.url)?.bundleIdentifier == "com.apple.Terminal" {
+            menu.addItem(terminalLauncher.newWindowItem(in: launcher.url))
+            menu.addItem(.separator())
+        }
         if let chromeProfiles = profiles.profiles(for: launcher) {
             let item = NSMenuItem(title: "Profiles", action: nil, keyEquivalent: "")
             item.isEnabled = false

@@ -1,7 +1,57 @@
 import AppKit
+import QuartzCore
+import WindowBarCore
 
 class ReorderableButton: NSButton, NSDraggingSource {
     enum Kind: String { case window, launcher }
+    private(set) var unreadBadge: UnreadBadge?
+    private var attentionPulsing = false
+    func updateAttention(
+        _ badge: UnreadBadge?, pulsing: Bool,
+        reduceMotion: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    ) {
+        unreadBadge = badge
+        if let badge {
+            setAccessibilityValue(badge == .dot ? "Unread activity" : badge.label + " unread")
+        } else {
+            setAccessibilityValue(nil)
+        }
+        let animate = badge != nil && pulsing && !reduceMotion
+        if animate != attentionPulsing {
+            attentionPulsing = animate
+            wantsLayer = true
+            layer?.removeAnimation(forKey: "unreadPulse")
+            if animate {
+                let animation = CABasicAnimation(keyPath: "backgroundColor")
+                animation.fromValue = NSColor.controlAccentColor.withAlphaComponent(0.05).cgColor
+                animation.toValue = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
+                animation.duration = 0.5
+                animation.autoreverses = true
+                animation.repeatCount = 3
+                layer?.cornerRadius = 10
+                layer?.add(animation, forKey: "unreadPulse")
+            }
+        }
+        needsDisplay = true
+    }
+    func drawUnreadBadge() {
+        guard let unreadBadge else { return }
+        let width: CGFloat = unreadBadge.label.count > 2 ? 24 : 16
+        let rect = NSRect(
+            x: max(0, bounds.maxX - width - 1), y: isFlipped ? 1 : bounds.maxY - 15, width: width, height: 14)
+        NSColor.systemRed.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        NSAttributedString(
+            string: unreadBadge.label,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 9, weight: .bold),
+                .foregroundColor: NSColor.white, .paragraphStyle: paragraph,
+            ]
+        ).draw(in: rect)
+    }
+
     var dragIdentifier = ""
     var kind: Kind = .window
     var onReorder: ((String, String, Bool) -> Void)?
@@ -87,6 +137,7 @@ class ReorderableButton: NSButton, NSDraggingSource {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         drawDropHighlight()
+        drawUnreadBadge()
     }
 
     func drawDropHighlight() {

@@ -40,6 +40,11 @@ enum PreviewRenderer {
             if name == "dark" {
                 try writeView(scene, to: directory.appendingPathComponent("overview.png"))
                 try writeView(bar, to: directory.appendingPathComponent("windowbar.png"))
+                var left = BarPreferences()
+                left.pinnedSide = .left
+                bar.update(
+                    entries: sampleWindows(), trusted: true, launchers: sampleLaunchers(), preferences: left)
+                try writeView(bar, to: directory.appendingPathComponent("pins-left.png"))
             }
             panel.close()
         }
@@ -58,13 +63,63 @@ enum PreviewRenderer {
         try preferences.importLaunchersIfNeeded(sampleLaunchers())
         let controller = SettingsWindowController(
             features: FeatureCoordinator(preferences: preferences),
-            startup: LoginItemService(backend: FeatureVerification.LoginBackend(), installed: { true }))
+            startup: LoginItemService(backend: FeatureVerification.LoginBackend(), installed: { true }),
+            decorateWindow: false)
         defer { controller.close() }
         if let view = controller.tabs.selectedTabViewItem?.view {
             view.wantsLayer = true
             view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
             view.layoutSubtreeIfNeeded()
             try writeView(view, to: directory.appendingPathComponent("settings.png"))
+        }
+        controller.tabs.selectTabViewItem(at: 1)
+        if let view = controller.tabs.selectedTabViewItem?.view {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            try writeView(view, to: directory.appendingPathComponent("behavior.png"))
+        }
+        controller.tabs.selectTabViewItem(at: 2)
+        if let view = controller.tabs.selectedTabViewItem?.view {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            try writeView(view, to: directory.appendingPathComponent("pinned-settings.png"))
+        }
+        let switcher = WindowSwitcherController(decorateWindow: false)
+        defer { switcher.close() }
+        switcher.update(entries: sampleWindows(), preferences: BarPreferences())
+        switcher.search.stringValue = "chrome"
+        switcher.filter()
+        if let view = switcher.window?.contentView {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            try writeView(view, to: directory.appendingPathComponent("search.png"))
+        }
+        let panel = TaskbarPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 1600, height: 66),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        defer { panel.close() }
+        let grouped = BarView(frame: NSRect(origin: .zero, size: panel.frame.size))
+        panel.contentView = grouped
+        var grouping = BarPreferences()
+        grouping.groupingMode = .appAndProfile
+        grouped.update(
+            entries: sampleWindows(), trusted: true, launchers: sampleLaunchers(), preferences: grouping)
+        grouped.layoutSubtreeIfNeeded()
+        grouped.blendingMode = .withinWindow
+        grouped.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+        try writeView(grouped, to: directory.appendingPathComponent("grouping.png"))
+        if let button = FeatureViewVerification.descendants(grouped).compactMap({ $0 as? WindowButton }).first
+        {
+            let hover = HoverPreviewController(showWindows: false)
+            hover.hover(button.entry, button: button, entered: true, mode: .titles, actionsEnabled: true)
+            FeatureViewVerification.wait(0.52)
+            if let view = hover.previewContent {
+                view.wantsLayer = true
+                view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+                try writeView(view, to: directory.appendingPathComponent("hover-actions.png"))
+            }
+            hover.hide()
         }
     }
 

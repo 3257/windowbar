@@ -2,6 +2,9 @@ import AppKit
 
 final class LauncherButton: ReorderableButton {
     let launcher: LauncherEntry
+    private var hoverArea: NSTrackingArea?
+    var onHover: ((LauncherEntry, [WindowEntry], LauncherButton, Bool) -> Void)?
+    var onDismissHover: (() -> Void)?
     var windows: [WindowEntry] = []
     var makeContextMenu: ((LauncherEntry, [WindowEntry]) -> NSMenu)?
     init(_ launcher: LauncherEntry) {
@@ -22,6 +25,17 @@ final class LauncherButton: ReorderableButton {
     var onLaunch: ((LauncherEntry) -> Void)?
     @objc private func launch() { onLaunch?(launcher) }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(
+            rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+    override func mouseEntered(with event: NSEvent) { onHover?(launcher, windows, self, true) }
+    override func mouseExited(with event: NSEvent) { onHover?(launcher, windows, self, false) }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if !windows.isEmpty {
@@ -31,6 +45,7 @@ final class LauncherButton: ReorderableButton {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        onDismissHover?()
         guard let menu = makeContextMenu?(launcher, windows) else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }

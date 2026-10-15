@@ -12,6 +12,7 @@ let usage = """
       --help                     Show this help
       --self-test                Run isolated feature checks without changing the desktop
       --install                  Install in ~/Applications without launching or replacing a running copy
+      --settings                 Open settings in a separate process
     """
 
 do {
@@ -19,6 +20,14 @@ do {
     switch command {
     case .help:
         print(usage)
+    case .settings:
+        let instance = try InstanceLock(
+            directory: DockController.backupURL.deletingLastPathComponent(), name: "settings.lock")
+        let app = NSApplication.shared
+        let delegate = SettingsHelperDelegate()
+        app.delegate = delegate
+        app.run()
+        withExtendedLifetime((delegate, instance)) {}
     case .selfTest:
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)

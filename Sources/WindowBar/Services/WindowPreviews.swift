@@ -16,6 +16,8 @@ protocol WindowCaptureBackend {
 }
 
 struct ScreenCaptureBackend: WindowCaptureBackend {
+    var maximumWidth = 640
+    var maximumHeight = 360
     var hasPermission: Bool { CGPreflightScreenCaptureAccess() }
 
     func capture(_ entry: WindowEntry, completion: @escaping (NSImage?) -> Void) {
@@ -34,8 +36,8 @@ struct ScreenCaptureBackend: WindowCaptureBackend {
             }
             let config = SCStreamConfiguration()
             let ratio = max(0.1, window.frame.width / max(1, window.frame.height))
-            config.width = min(640, max(1, Int(360 * ratio)))
-            config.height = min(360, max(1, Int(Double(config.width) / ratio)))
+            config.width = min(maximumWidth, max(1, Int(Double(maximumHeight) * ratio)))
+            config.height = min(maximumHeight, max(1, Int(Double(config.width) / ratio)))
             config.showsCursor = false
             config.capturesAudio = false
             let filter = SCContentFilter(desktopIndependentWindow: window)

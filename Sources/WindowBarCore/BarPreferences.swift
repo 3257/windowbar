@@ -3,9 +3,21 @@ import Foundation
 public struct BarPreferences: Equatable, Codable {
     public enum WindowScope: String, CaseIterable, Codable { case allDisplays, currentDisplay }
     public enum PreviewMode: String, CaseIterable, Codable { case titles, thumbnails }
+    public enum GroupingMode: String, CaseIterable, Codable { case none, app, appAndProfile }
+    public enum PinnedSide: String, CaseIterable, Codable { case right, left }
+    public enum NotificationMode: String, CaseIterable, Codable { case badgesAndPulse, badgesOnly, off }
 
     public var windowScope: WindowScope = .allDisplays
     public var previewMode: PreviewMode = .titles
+    public var searchEnabled = true
+    public var searchIncludesMinimized = true
+    public var groupingMode: GroupingMode = .none
+    public var hoverActionsEnabled = true
+    public var pinnedSide: PinnedSide = .right
+    public var hoverPeekEnabled = true
+    public var notificationMode: NotificationMode = .badgesAndPulse
+    public var autoHideEnabled = false
+    public var autoHideDelay: Double = 0.8
     public var shortcutsEnabled = false
     public var shortcuts = ShortcutBinding.defaults
     /// nil imports the existing Dock once; [] intentionally shows no pinned apps.
@@ -13,8 +25,23 @@ public struct BarPreferences: Equatable, Codable {
 
     public init() {}
 
+    public var activeShortcuts: [ShortcutBinding] {
+        shortcutsEnabled ? shortcuts.filter { searchEnabled || $0.action != .searchWindows } : []
+    }
+
+    public enum ValidationError: Error { case invalidHideDelay }
+    public func validate() throws {
+        try ShortcutBinding.validate(shortcuts)
+        guard autoHideDelay.isFinite, (0.2...3).contains(autoHideDelay) else {
+            throw ValidationError.invalidHideDelay
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case windowScope, previewMode, shortcutsEnabled, shortcuts, pinnedPaths
+        case searchEnabled, searchIncludesMinimized, groupingMode, hoverActionsEnabled, autoHideEnabled,
+            autoHideDelay
+        case pinnedSide, hoverPeekEnabled, notificationMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -25,5 +52,24 @@ public struct BarPreferences: Equatable, Codable {
         shortcuts =
             try values.decodeIfPresent([ShortcutBinding].self, forKey: .shortcuts) ?? ShortcutBinding.defaults
         pinnedPaths = try values.decodeIfPresent([String].self, forKey: .pinnedPaths)
+        searchEnabled = try values.decodeIfPresent(Bool.self, forKey: .searchEnabled) ?? true
+        searchIncludesMinimized =
+            try values.decodeIfPresent(Bool.self, forKey: .searchIncludesMinimized) ?? true
+        groupingMode = try values.decodeIfPresent(GroupingMode.self, forKey: .groupingMode) ?? .none
+        hoverActionsEnabled = try values.decodeIfPresent(Bool.self, forKey: .hoverActionsEnabled) ?? true
+        pinnedSide = try values.decodeIfPresent(PinnedSide.self, forKey: .pinnedSide) ?? .right
+        hoverPeekEnabled = try values.decodeIfPresent(Bool.self, forKey: .hoverPeekEnabled) ?? true
+        notificationMode =
+            try values.decodeIfPresent(NotificationMode.self, forKey: .notificationMode) ?? .badgesAndPulse
+        autoHideEnabled = try values.decodeIfPresent(Bool.self, forKey: .autoHideEnabled) ?? false
+        let delay = try values.decodeIfPresent(Double.self, forKey: .autoHideDelay) ?? 0.8
+        autoHideDelay = delay.isFinite ? min(3, max(0.2, delay)) : 0.8
+        // Add the new action without taking a previously customized combination.
+        if !shortcuts.contains(where: { $0.action == .searchWindows }),
+            let search = ShortcutBinding.defaults.first(where: { $0.action == .searchWindows }),
+            !shortcuts.contains(where: { $0.keyCode == search.keyCode && $0.modifiers == search.modifiers })
+        {
+            shortcuts.append(search)
+        }
     }
 }

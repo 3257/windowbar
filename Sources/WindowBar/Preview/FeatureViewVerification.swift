@@ -157,7 +157,7 @@ enum FeatureViewVerification {
             features: features, startup: LoginItemService(backend: login, installed: { true }),
             installer: ApplicationInstaller(
                 destination: directory.appendingPathComponent("Installed.app"), isRunning: { _ in false },
-                verify: { _ in }), logDirectory: directory)
+                verify: { _ in }), logDirectory: directory, decorateWindow: false)
         defer { settings.close() }
         settings.scope.selectItem(at: 1)
         settings.changeScope()
@@ -174,7 +174,7 @@ enum FeatureViewVerification {
         settings.toggleShortcuts()
         try require(features.preferences.value.shortcutsEnabled, "Shortcuts control did not persist")
         try require(
-            settings.tabs.tabViewItems.count == 4 && settings.window?.isVisible == false,
+            settings.tabs.tabViewItems.count == 5 && settings.window?.isVisible == false,
             "Settings pages are missing or interrupted desktop")
         try require(
             settings.tabs.selectedTabViewItem?.label == "General" && settings.startupToggle.frame.height > 0,

@@ -9,6 +9,7 @@ public enum AppCommand: Equatable {
     case help
     case selfTest
     case install
+    case settings
 
     public enum UsageError: Error { case invalidArguments }
 
@@ -21,6 +22,7 @@ public enum AppCommand: Equatable {
         case ["--help"], ["-h"]: return .help
         case ["--self-test"]: return .selfTest
         case ["--install"]: return .install
+        case ["--settings"]: return .settings
         default:
             if arguments.count == 2, arguments[0] == "--render-preview", !arguments[1].isEmpty {
                 return .preview(path: arguments[1])

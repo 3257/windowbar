@@ -3,6 +3,7 @@ import Foundation
 public enum ShortcutAction: String, CaseIterable, Codable {
     case nextWindow, previousWindow
     case pinned1, pinned2, pinned3, pinned4, pinned5, pinned6, pinned7, pinned8, pinned9
+    case searchWindows
 
     public var pinnedIndex: Int? {
         guard rawValue.hasPrefix("pinned"), let number = Int(rawValue.dropFirst(6)) else { return nil }
@@ -35,9 +36,10 @@ public struct ShortcutBinding: Equatable, Codable {
             ShortcutBinding(action: .nextWindow, keyCode: 124, modifiers: modifiers),
             ShortcutBinding(action: .previousWindow, keyCode: 123, modifiers: modifiers),
         ]
-            + zip(Array(ShortcutAction.allCases.dropFirst(2)), digits).map {
+            + zip(ShortcutAction.allCases.filter { $0.pinnedIndex != nil }, digits).map {
                 ShortcutBinding(action: $0, keyCode: $1, modifiers: modifiers)
             }
+            + [ShortcutBinding(action: .searchWindows, keyCode: 49, modifiers: modifiers)]
     }()
 
     public enum ValidationError: Error, Equatable { case unsafeKey, duplicateKey, duplicateAction }
