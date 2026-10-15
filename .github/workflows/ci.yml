@@ -26,3 +26,12 @@ jobs:
           codesign --verify --strict --verbose=2 build/WindowBar.app
       - name: Isolated native feature checks
         run: python3 Tests/Smoke/verify_isolation.py build/WindowBar.app/Contents/MacOS/WindowBar
+      - name: Package universal app
+        run: zsh scripts/package-app.sh
+      - name: Upload downloadable app
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          path: build/distribution/WindowBar.app.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 30

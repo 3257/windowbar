@@ -1,189 +1,33 @@
 # WindowBar
 
-A native macOS taskbar with **one button per window**. Keep Chrome and Terminal windows in a single row, identify Chrome profiles, and switch with one click.
+A native macOS taskbar with one button per open window. Find and switch windows quickly, including Chrome windows from different profiles.
 
-![Quiet Shelf with sample Chrome and Terminal windows](docs/screenshots/quiet-shelf-dark.png)
+![WindowBar with open Chrome and Terminal windows](docs/screenshots/overview.png)
+
+## Install
+
+Download `WindowBar.app.zip` from the latest successful [Build and test run](https://github.com/SimeonLGeorgiev/windowbar/actions/workflows/ci.yml) on `main`. The package contains one universal app for Apple silicon and Intel, so you do not need Xcode or Swift. CI keeps each download for 30 days.
+
+Unzip the download, move `WindowBar.app` to **Applications**, and open it. If macOS warns that it cannot verify the developer, Control-click the app, choose **Open**, then confirm. This build is ad-hoc signed and is not notarized.
+
+On first launch, allow WindowBar under **System Settings → Privacy & Security → Accessibility** so it can find and switch windows. Screen Recording access is optional; it enables thumbnails and full-size hover peeks. Turn on **Start at login** in WindowBar Settings if you want it to open when you sign in.
 
 ## Features
 
-- **Quiet Shelf:** system light/dark appearance, restrained focus styling, and pinned apps on either side (right by default). The leading “W” mark is removed.
-- Window buttons shrink automatically, then scroll horizontally at their minimum size. The focused button is 30% wider; motion follows macOS Reduce Motion.
-- **Drag to reorder** windows and pinned apps. Window order lasts for the current session; pinned app order persists across launches.
-- **Pin position:** Settings → Pinned Apps → Right (default) or Left. The window row and search controls keep their space on either side.
-- **Pin and unpin apps** from window/launcher context menus or Settings → Pinned Apps. Existing Dock pins are imported once; managing WindowBar pins does not edit Dock pins.
-- **Chrome profile badges:** show a name, initial, and consistent color when Chrome exposes its profile control. Right-click a window → Profile Badge to assign one manually or return to Automatic.
-- **Every Chrome profile directly in its pinned-app menu.** Selecting one opens a new window in it. Native New Window/New Tab commands, window lists, Hide/Show, Quit, and Show in Finder remain available.
-- **Display filtering:** show all windows or only windows on each bar's display. A spanning window belongs to the display containing its largest area. Windows without usable bounds remain reachable on every display.
-- **Hover cards:** full title and profile by default; optional window thumbnails through ScreenCaptureKit. Missing permission, minimized windows, and ambiguous capture targets fall back to titles.
-- **Searchable window switcher:** match title, app, and Chrome profile; use arrows and Return, double-click a result, or Escape to dismiss. The search button, menu action, and keyboard shortcut can be disabled; minimized results are optional.
-- **Optional grouping:** app or app + Chrome profile. Click a header to collapse or expand; search still finds all windows, and keyboard selection expands its group. Collapse state lasts until the bar is rebuilt; grouping mode persists.
-- **Hover actions:** Switch, Minimize / Restore, and Close from the nonactivating card. Actions can be disabled while retaining title/thumbnail previews.
-- **Window peek after 0.6 seconds:** hover a window button or pinned icon to see a full-size preview above the desktop. Pinned icons choose their most recently focused window across app instances. Leaving dismisses the preview; clicking its image or bar button switches to the real window. Keyboard focus and real window order stay unchanged during the peek. Peeking is configurable and requires existing Screen Recording access; minimized/unavailable windows keep the regular preview/click behavior.
-- **Unread indicators:** mirror app Dock badges when Accessibility exposes them. New/increased unread signals briefly pulse matching window buttons and pinned icons. Settings → Behavior offers Off, Badges only, or Badges + brief pulse. Startup/unchanged badges do not repeatedly alert; Reduce Motion keeps a steady badge. This is badge mirroring, not a global notification listener, and cannot detect a new Slack message when Slack does not change its Dock badge.
-- **Terminal New Window:** opens a new shell in your home folder using Terminal’s default profile; New Window with Profile retains all profile choices.
-- **Auto-hide:** optional bottom-edge reveal with a configurable 0.2–3 second delay. Menus, hover cards, settings, search, and dragging keep the shelf open. A small reveal strip stays within its own screen, including stacked displays. Reduce Motion disables fading.
-- **Configurable global shortcuts** for search, next/previous window, and the first nine pinned apps. Registration conflicts retain the previous bindings. Shortcuts start disabled.
-- **Start at login** from the installed app's Settings. Installation stages and verifies the app, and protects running installed copies from replacement.
-- **Diagnostics:** bounded event logs, clean/unclean exit detection, export, and permission status. Logs omit window titles, profile names, URLs, and images.
-- Optional bars on every display, and temporary Dock replacement with restoration on hide, quit, or force-quit.
+- **One button per window:** click to switch, drag to reorder, or scroll when the row fills.
+- **Chrome profiles:** identify profile windows and open a new window from a profile menu.
+- **Search and grouping:** find windows by title, app, or profile; group them by app or profile.
+- **Hover previews:** see a thumbnail and window actions, or pause 0.6 seconds for a full-size peek.
+- **Personalize the bar:** pin apps on either side, use multiple displays, enable auto-hide, shortcuts, or unread badges.
+- **Desktop fit:** maximized windows stop above the taskbar so bottom controls stay accessible.
+- **Optional Dock replacement:** off by default and restored when WindowBar quits.
 
-## Screenshots and design
+![Chrome profile menu](docs/screenshots/chrome-menu.png)
 
-These images render the app's own offscreen AppKit views with sample titles/profiles. The menu image renders actual NSMenu item state with native labels and separators, without opening a popup or capturing the desktop.
+![WindowBar behavior settings](docs/screenshots/behavior.png)
 
-![Quiet Shelf in light appearance](docs/screenshots/quiet-shelf-light.png)
-
-![Chrome context menu with four sample profiles](docs/screenshots/chrome-menu.png)
-
-![General settings](docs/screenshots/settings.png)
-
-![Search by title, app or profile](docs/screenshots/search.png)
-
-![App and Chrome profile grouping](docs/screenshots/grouping.png)
-
-![Hover window actions](docs/screenshots/hover-actions.png)
-
-![Configurable window tools](docs/screenshots/behavior.png)
-
-![Pinned apps on the left](docs/screenshots/pins-left.png)
-
-![Pin position setting](docs/screenshots/pinned-settings.png)
-
-[Interactive design study](docs/design/mockups.html) · [Design decisions](docs/design/README.md)
-
-## Requirements
-
-- macOS 14 Sonoma or later, on Apple silicon or Intel.
-- Xcode Command Line Tools with Swift 5.10 or later. Use `xcode-select --install` if needed.
-- Accessibility access for discovering and controlling windows.
-- Screen Recording access only for optional thumbnails. Title previews do not need it. Full-size hover peeks use the same optional permission, with no hover-time prompts.
-
-No third-party packages or application network calls are used. Chrome launches locally; its metadata files are read-only.
-
-## Build, install, and run
-
-```sh
-git clone https://github.com/SimeonLGeorgiev/windowbar.git
-cd windowbar
-# Until the window tools update is merged:
-git checkout feature/window-tools
-zsh build.sh
-build/WindowBar.app/Contents/MacOS/WindowBar --install
-open ~/Applications/WindowBar.app
-```
-
-The repository is private. The build creates an ad-hoc signed app for the current Mac's architecture. Installation copies it into your user Applications folder without launching it or replacing a running installed copy. The same action is available from Settings → General. Keep one copy running.
-
-Grant **WindowBar** access in **System Settings → Privacy & Security → Accessibility**. Add the installed copy with **+** if needed. A rebuilt ad-hoc signed app can require granting access again.
-
-Enable **Start at login** from the installed copy's Settings. If macOS reports that approval is required, use **Login Items Settings** to allow it. Login startup is not registered automatically during builds or tests.
-
-Enable thumbnails in **Settings → General → Hover previews**, then use **Enable thumbnail access** if needed. Permission is requested only by this explicit button; hovering never opens a permission dialog. macOS may require reopening the app after granting access. Thumbnails stay in memory and are not logged or written to disk.
+See [daily use and settings](#daily-use), the [interactive design study](docs/design/classic-apple/mockups.html), or [architecture and development notes](docs/architecture.md).
 
 ## Daily use
 
-| Action | Result |
-| --- | --- |
-| Click a window button | Switch to that window; restore it if minimized |
-| Drag a window button or pinned icon | Move it before/after another button of the same kind |
-| Right-click a window | Switch, minimize/restore, close, pin its app, move, or choose a Chrome profile badge |
-| Right-click a pinned app | Native app actions, its windows, move, or unpin |
-| Right-click Chrome → profile | Open a new window in that profile |
-| Hover a window | Title/profile and optional thumbnail/actions; a 0.6-second dwell shows a full-size peek |
-| Hover a pinned app for 0.6 seconds | Peek at its most recently focused available window |
-| Right-click Terminal → New Window | Open a shell in your home folder with its default profile |
-| Click the search icon | Search windows by title, app, and profile |
-| Click a group header | Collapse or expand that app/profile group |
-| Move to the bottom screen edge | Reveal the bar when auto-hide is enabled |
-| Scroll over the windows or pins | Reach overflow items without a second row |
-| **⋯** or menu bar icon → Settings | General, Behavior, Pinned Apps, Shortcuts, and Diagnostics |
-| Settings → Shortcuts | Enable shortcuts and click a combination to record it; Escape cancels |
-
-Default shortcuts are **Control–Command–Left/Right** for previous/next window and **Control–Command–1…9** for pinned apps. **Control–Command–Space** opens search. All global shortcuts remain inactive until enabled. Keyboard window navigation follows the selected display filter and reveals the selected button in the row.
-
-**Settings → Behavior** configures search, minimized search results, grouping, hover actions, auto-hide, hide delay, full-window peeking, and unread indicators. **Settings → Pinned Apps** chooses left/right pin placement. Grouping and auto-hide start off. Search and hover actions start on; title-only previews remain the default. Search covers windows from all displays even when each bar filters its row. If an existing customized shortcut uses the new search combination, it is preserved; choose a different search binding under Shortcuts.
-
-**Show on all displays** controls where bars appear. **Settings → General → Windows to show** controls each bar's window list. Profile overrides and window ordering are session state; persistent pins and preferences are separate from Dock settings.
-
-**Replace macOS Dock** is opt-in from the menu. Native Dock replacement starts disabled. Hiding or quitting restores the saved settings. A separate guard restores them after a crash/force-quit. The backup at `~/Library/Application Support/WindowBar/dock-backup.plist` is retained if restoration fails.
-
-Maximized desktop windows stop eight points above the visible taskbar, keeping bottom controls accessible. Ordinary, tiled, minimized, and native macOS fullscreen windows are left alone. Enabling auto-hide or hiding/quitting WindowBar restores window sizes that WindowBar adjusted, provided you have not moved or resized them yourself. Each display reserves space only when it has a visible taskbar.
-
-Double-clicking a managed window's titlebar again restores its last observed ordinary size. If WindowBar first saw that window already maximized, it restores to a centered ordinary size instead. Window resizing happens through Accessibility without activating the app or changing keyboard focus.
-
-## Recovery and Settings isolation
-
-Settings runs in a separate `--settings` process. Its rendering, permission/status queries, and file dialogs run outside the taskbar event loop. Changes are persisted, validated/applied by the bar, and acknowledged back to Settings; rejected shortcuts restore the previous preferences.
-
-A temporary recovery launch keeps a bar on every display, with Settings, search, previews, unread polling, auto-hide, shortcuts, and Dock replacement disabled:
-
-```sh
-WINDOWBAR_RECOVERY_MODE=1 build/WindowBar.app/Contents/MacOS/WindowBar
-```
-
-Recovery mode does not change saved settings. It does not resolve macOS filesystem/graphics stalls or restart desktop services. If Dock/Finder themselves are stuck in uninterruptible file I/O, save work and recover the macOS session separately before enabling Dock replacement. Do not start another copy while a healthy WindowBar is already running.
-
-## Development without interrupting a running copy
-
-The builder refuses to overwrite a running app bundle. Build a separate candidate:
-
-```sh
-WINDOWBAR_APP_PATH="$PWD/build/candidate/WindowBar.app" \
-WINDOWBAR_BUILD_PATH="$PWD/build/candidate-swiftpm" zsh build.sh
-swift test --scratch-path build/candidate-swiftpm
-zsh scripts/smoke.sh isolated
-xcrun swift-format lint --strict --recursive Sources Tests Package.swift
-```
-
-The isolated checks exercise the daily-use features, window tools, pin placement, peeking, Terminal home-folder routing, and unread indicators with temporary preferences/files, fake login/hotkey/capture backends, native controls and drag/drop callbacks, hover cancellation, and light/dark rendering. All windows stay offscreen; the wrapper verifies the Dock snapshot and preferences remain intact, and checks the live PID when supplied through `WINDOWBAR_LIVE_PID` or the active Dock snapshot. It does not activate Chrome/Terminal, register live shortcuts/login items, request permissions, or capture the desktop.
-
-For a detached developer launch, use `python3 scripts/run.py`. It starts the built app in its own process session and redirects output to `~/Library/Logs/WindowBar/app.log`. For everyday use, open the installed app from Finder.
-
-### Live desktop checks
-
-These checks change focus or restart WindowBar. Run them when your desktop is available for testing, with Accessibility access and Chrome/Terminal open and pinned:
-
-```sh
-# WindowBar must be running:
-zsh scripts/smoke.sh menus
-zsh scripts/smoke.sh tabs
-zsh scripts/smoke.sh terminal
-zsh scripts/smoke.sh workarea
-# WindowBar must be closed:
-zsh scripts/smoke.sh dock
-zsh scripts/smoke.sh lifetime
-```
-
-Browser checks create isolated blank windows and close their own windows afterward. Terminal follows the current Accessibility handle as tabs change and closes its created window IDs. Lifecycle checks verify exact Dock restoration and survival after closing the launching process group. Failures return a nonzero status.
-
-Actual login registration, real thumbnail capture, global shortcut delivery, physical monitor attach/detach, and auto-hide with physical pointer/Space transitions should also be checked on an installed copy when desktop testing is appropriate; isolated backend checks do not establish those OS integrations.
-
-### Diagnostics and documentation
-
-```sh
-build/candidate/WindowBar.app/Contents/MacOS/WindowBar --diagnose
-WINDOWBAR_APP_PATH="$PWD/build/candidate/WindowBar.app" zsh scripts/screenshots.sh
-```
-
-Diagnostics reports permission state and app window counts without titles. App events live in `~/Library/Logs/WindowBar/events.jsonl`, with one rotated archive. Each file rotates at approximately 512 KiB. Settings → Diagnostics can reveal or export events. Normal shutdown clears the session marker; a leftover marker from a dead process produces an unclean-exit event on the next launch.
-
-Documentation rendering never opens menus or activates an app. Its fixed sample launchers/profile names do not contain accounts or desktop content. Chrome must be running for native New commands to appear in the menu rendering.
-
-## Code organization
-
-| Directory | Contents |
-| --- | --- |
-| `Sources/WindowBarCore` | Layout, ordering, display/capture matching, preferences, shortcut validation, profile decoding |
-| `Sources/WindowBar/Services` | Accessibility, actions, menus, pin state, login, installation, hotkeys, previews, diagnostics, Dock lifecycle |
-| `Sources/WindowBar/Views` | Native drawing, drag/drop, hover cards, settings, and shortcut recording |
-| `Sources/WindowBar/Preview` | Sample fixtures, offscreen rendering, and isolated feature verification |
-| `Tests/WindowBarCoreTests` | Pure XCTest cases |
-| `Tests/Smoke` | Isolated and explicit desktop integration checks |
-
-Read [architecture](docs/architecture.md) and [maintainability review](docs/code-review.md) before changing lifecycle or Dock handling. CI runs core tests, builds/verifies the bundle, and runs isolated native feature checks.
-
-## Current limits
-
-WindowBar overlays space rather than reserving it. Accessibility support and full-screen/Space behavior vary by app. Native New commands use English File/Shell headings. Chrome profiles use standard Chrome/Beta/Dev/Canary locations; custom user-data directories and localized/ambiguous profile controls may need a manual badge.
-
-Unavailable, minimized, or ambiguous windows get title-only previews. Full-size peeks show a bounded image snapshot, refreshed on a later hover; they do not run or activate the app. Dock badge exposure varies by app/macOS, and badge changes cannot report every individual notification. Monitor behavior is tested with simulated layouts; physical multi-monitor testing needs suitable hardware. This local build is ad-hoc signed and has no notarized release or update service. Build on each target architecture.
+Click a window button to switch to it. Right-click for window actions; right-click a pinned app for its menus. Select the search icon to find a window. Use **Settings** from the bar menu to manage pins, shortcuts, display behavior, and previews.
