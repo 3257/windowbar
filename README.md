@@ -18,7 +18,7 @@ A native macOS taskbar with **one button per window**. Keep Chrome and Terminal 
 - **Searchable window switcher:** match title, app, and Chrome profile; use arrows and Return, double-click a result, or Escape to dismiss. The search button, menu action, and keyboard shortcut can be disabled; minimized results are optional.
 - **Optional grouping:** app or app + Chrome profile. Click a header to collapse or expand; search still finds all windows, and keyboard selection expands its group. Collapse state lasts until the bar is rebuilt; grouping mode persists.
 - **Hover actions:** Switch, Minimize / Restore, and Close from the nonactivating card. Actions can be disabled while retaining title/thumbnail previews.
-- **One-second window peek:** hover a window button or pinned icon to see a full-size preview above the desktop. Pinned icons choose their most recently focused window across app instances. Leaving dismisses the preview; clicking its image or bar button switches to the real window. Keyboard focus and real window order stay unchanged during the peek. Peeking is configurable and requires existing Screen Recording access; minimized/unavailable windows keep the regular preview/click behavior.
+- **Window peek after 0.6 seconds:** hover a window button or pinned icon to see a full-size preview above the desktop. Pinned icons choose their most recently focused window across app instances. Leaving dismisses the preview; clicking its image or bar button switches to the real window. Keyboard focus and real window order stay unchanged during the peek. Peeking is configurable and requires existing Screen Recording access; minimized/unavailable windows keep the regular preview/click behavior.
 - **Unread indicators:** mirror app Dock badges when Accessibility exposes them. New/increased unread signals briefly pulse matching window buttons and pinned icons. Settings → Behavior offers Off, Badges only, or Badges + brief pulse. Startup/unchanged badges do not repeatedly alert; Reduce Motion keeps a steady badge. This is badge mirroring, not a global notification listener, and cannot detect a new Slack message when Slack does not change its Dock badge.
 - **Terminal New Window:** opens a new shell in your home folder using Terminal’s default profile; New Window with Profile retains all profile choices.
 - **Auto-hide:** optional bottom-edge reveal with a configurable 0.2–3 second delay. Menus, hover cards, settings, search, and dragging keep the shelf open. A small reveal strip stays within its own screen, including stacked displays. Reduce Motion disables fading.
@@ -89,8 +89,8 @@ Enable thumbnails in **Settings → General → Hover previews**, then use **Ena
 | Right-click a window | Switch, minimize/restore, close, pin its app, move, or choose a Chrome profile badge |
 | Right-click a pinned app | Native app actions, its windows, move, or unpin |
 | Right-click Chrome → profile | Open a new window in that profile |
-| Hover a window | Title/profile and optional thumbnail/actions; one-second dwell shows a full-size peek |
-| Hover a pinned app for one second | Peek at its most recently focused available window |
+| Hover a window | Title/profile and optional thumbnail/actions; a 0.6-second dwell shows a full-size peek |
+| Hover a pinned app for 0.6 seconds | Peek at its most recently focused available window |
 | Right-click Terminal → New Window | Open a shell in your home folder with its default profile |
 | Click the search icon | Search windows by title, app, and profile |
 | Click a group header | Collapse or expand that app/profile group |
@@ -106,6 +106,10 @@ Default shortcuts are **Control–Command–Left/Right** for previous/next windo
 **Show on all displays** controls where bars appear. **Settings → General → Windows to show** controls each bar's window list. Profile overrides and window ordering are session state; persistent pins and preferences are separate from Dock settings.
 
 **Replace macOS Dock** is opt-in from the menu. Native Dock replacement starts disabled. Hiding or quitting restores the saved settings. A separate guard restores them after a crash/force-quit. The backup at `~/Library/Application Support/WindowBar/dock-backup.plist` is retained if restoration fails.
+
+Maximized desktop windows stop eight points above the visible taskbar, keeping bottom controls accessible. Ordinary, tiled, minimized, and native macOS fullscreen windows are left alone. Enabling auto-hide or hiding/quitting WindowBar restores window sizes that WindowBar adjusted, provided you have not moved or resized them yourself. Each display reserves space only when it has a visible taskbar.
+
+Double-clicking a managed window's titlebar again restores its last observed ordinary size. If WindowBar first saw that window already maximized, it restores to a centered ordinary size instead. Window resizing happens through Accessibility without activating the app or changing keyboard focus.
 
 ## Recovery and Settings isolation
 
@@ -144,6 +148,7 @@ These checks change focus or restart WindowBar. Run them when your desktop is av
 zsh scripts/smoke.sh menus
 zsh scripts/smoke.sh tabs
 zsh scripts/smoke.sh terminal
+zsh scripts/smoke.sh workarea
 # WindowBar must be closed:
 zsh scripts/smoke.sh dock
 zsh scripts/smoke.sh lifetime

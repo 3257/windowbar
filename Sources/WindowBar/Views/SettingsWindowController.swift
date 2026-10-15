@@ -33,7 +33,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     let notificationMode = NSPopUpButton()
     let pinnedSide = NSPopUpButton()
     let peekToggle = NSButton(
-        checkboxWithTitle: "Peek at windows after hovering for one second", target: nil, action: nil)
+        checkboxWithTitle: "Peek at windows after hovering for 0.6 seconds", target: nil, action: nil)
     let pinnedTable = NSTableView()
     let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let shortcutRows = NSStackView()

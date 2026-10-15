@@ -251,6 +251,7 @@ enum FeatureVerification {
         try WindowToolsVerification.run(features: features, directory: directory)
         try PinsPeekVerification.run(features: features, directory: directory)
         try SettingsIsolationVerification.run(features: features, directory: directory)
+        try WindowWorkAreaVerification.run()
         print("PASS: all feature service and native UI checks completed without changing the running desktop")
     }
 }

@@ -44,10 +44,10 @@ enum PinsPeekVerification {
                 sourceFrame: source, screenFrame: screen, now: time)
         }
         enter(0)
-        peek.tick(now: 0.99, pointer: pointer)
-        try require(provider.calls == 0, "Peek appeared before one second")
-        peek.tick(now: 1, pointer: pointer)
-        try require(provider.calls == 1 && !peek.isActive, "Peek capture did not wait for one second")
+        peek.tick(now: 0.59, pointer: pointer)
+        try require(provider.calls == 0, "Peek appeared before 0.6 seconds")
+        peek.tick(now: 0.6, pointer: pointer)
+        try require(provider.calls == 1 && !peek.isActive, "Peek capture did not start at 0.6 seconds")
         peek.hover(
             entry, source: "window", entered: false, enabled: true, sourceFrame: source, screenFrame: screen)
         provider.completion?(.image(NSImage(size: NSSize(width: 600, height: 400))))
@@ -81,7 +81,7 @@ enum PinsPeekVerification {
         provider.completion?(.image(NSImage(size: NSSize(width: 600, height: 400))))
         try require(!peek.isActive, "Closed window's capture opened peek")
         print(
-            "PASS: one-second peek dwell, cancellation, launcher source, click commit, stale actions, disable and closed windows"
+            "PASS: 0.6-second peek dwell, cancellation, launcher source, click commit, stale actions, disable and closed windows"
         )
 
         let parent = NSMenuItem(title: "New Window", action: nil, keyEquivalent: "")
