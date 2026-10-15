@@ -180,7 +180,7 @@ final class BarView: NSVisualEffectView {
             width: bounds.width, pinnedCount: launchers.count,
             searchEnabled: preferences.searchEnabled, side: preferences.pinnedSide)
         let launcherWidth = shelf.launcherWidth
-        let left = shelf.windowX
+        let left = CGFloat(shelf.windowX)
         searchButton.frame = NSRect(x: 12, y: bounds.height / 2 - 16, width: 26, height: 32)
         let middle = bounds.height / 2
         let launcherX = shelf.launcherX
