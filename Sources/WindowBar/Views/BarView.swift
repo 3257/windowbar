@@ -162,9 +162,13 @@ final class BarView: NSVisualEffectView {
     ) {
         for button in buttons.values {
             let id = button.entry.appIdentity
+            // Terminal's Dock bell belongs to the app, not every shell session.
+            let windowBadge =
+                mode != .off && id != "com.apple.Terminal"
+                && !(button.entry.element == nil && button.entry.appName == "Terminal")
             button.updateAttention(
-                mode == .off ? nil : attention.badges[id],
-                pulsing: mode == .badgesAndPulse && attention.isPulsing(id, now: now))
+                windowBadge ? attention.badges[id] : nil,
+                pulsing: windowBadge && mode == .badgesAndPulse && attention.isPulsing(id, now: now))
         }
         for button in launcherButtons.values {
             let id = Bundle(url: button.launcher.url)?.bundleIdentifier ?? ""

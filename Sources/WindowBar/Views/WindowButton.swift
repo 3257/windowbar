@@ -48,8 +48,10 @@ final class WindowButton: ReorderableButton {
             }
         }
         let profile = entry.profile.map { " · \($0.name)" } ?? ""
-        toolTip = "\(entry.appName) — \(entry.title)\(profile)\(entry.minimized ? " (minimized)" : "")"
-        setAccessibilityLabel(toolTip)
+        let label = "\(entry.appName) — \(entry.title)\(profile)\(entry.minimized ? " (minimized)" : "")"
+        toolTip = entry.focused ? nil : label
+        setAccessibilityLabel(label)
+        if entry.focused { hoverAmount = 0 }
         needsDisplay = true
     }
 
@@ -74,6 +76,11 @@ final class WindowButton: ReorderableButton {
         }
     }
     override func mouseEntered(with event: NSEvent) {
+        guard !entry.focused else {
+            hover(0)
+            onDismissHover?()
+            return
+        }
         hover(1)
         onHover?(entry, self, true)
     }
@@ -86,7 +93,7 @@ final class WindowButton: ReorderableButton {
         let box = bounds.insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(roundedRect: box, xRadius: 10, yRadius: 10)
         let focus = min(1, max(0, focusAmount))
-        let hover = min(1, max(0, hoverAmount))
+        let hover = entry.focused ? 0 : min(1, max(0, hoverAmount))
         let contrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         let fill = NSColor.labelColor.withAlphaComponent(0.035 + hover * 0.06)
             .blended(withFraction: focus, of: accent.withAlphaComponent(contrast ? 0.28 : 0.15))!

@@ -11,16 +11,17 @@ enum PinsPeekVerification {
         defer { panel.close() }
         let bar = BarView(frame: CGRect(origin: .zero, size: panel.frame.size))
         panel.contentView = bar
-        let entries = sampleWindows()
+        var entries = sampleWindows()
+        entries[0].focused = false
         let launchers = sampleLaunchers()
         var preferences = BarPreferences()
         bar.update(entries: entries, trusted: true, launchers: launchers, preferences: preferences)
         bar.layoutSubtreeIfNeeded()
-        try require(bar.launchScroll.frame.minX > bar.scroll.frame.maxX, "Default pins are not on the right")
-        preferences.pinnedSide = .left
+        try require(bar.launchScroll.frame.maxX < bar.scroll.frame.minX, "Default pins are not on the left")
+        preferences.pinnedSide = .right
         bar.update(entries: entries, trusted: true, launchers: launchers, preferences: preferences)
         bar.layoutSubtreeIfNeeded()
-        try require(bar.launchScroll.frame.maxX < bar.scroll.frame.minX, "Left pins overlap window row")
+        try require(bar.launchScroll.frame.minX > bar.scroll.frame.maxX, "Right pins overlap window row")
         let pins = FeatureViewVerification.descendants(bar).compactMap { $0 as? LauncherButton }
         var pinHovered = false
         bar.onLauncherHover = { _, windows, _, entered in pinHovered = entered && !windows.isEmpty }
@@ -29,7 +30,25 @@ enum PinsPeekVerification {
             windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
         pins.first { $0.launcher.name == "Google Chrome" }?.mouseEntered(with: event)
         try require(pinHovered, "Pinned app hover did not expose its windows")
-        print("PASS: default-right/optional-left native pin layout and pinned app hover routing")
+        var activeEntries = entries
+        activeEntries[0].focused = true
+        bar.update(entries: activeEntries, trusted: true, launchers: launchers, preferences: preferences)
+        pinHovered = false
+        pins.first { $0.launcher.name == "Google Chrome" }?.mouseEntered(with: event)
+        try require(!pinHovered, "Active pinned app still routed a hover")
+        let activeButton = FeatureViewVerification.descendants(bar).compactMap { $0 as? WindowButton }.first {
+            $0.entry.focused
+        }!
+        var activeHovered = false
+        activeButton.onHover = { _, _, entered in activeHovered = entered }
+        activeButton.mouseEntered(with: event)
+        try require(
+            !activeHovered && activeButton.hoverAmount == 0 && activeButton.toolTip == nil,
+            "Selected window still reacted to hovering")
+        bar.update(entries: entries, trusted: true, launchers: launchers, preferences: preferences)
+        print(
+            "PASS: default-left/optional-right pins and no hover response for selected windows or active pins"
+        )
 
         let provider = FeatureViewVerification.DeferredPreview()
         let peek = WindowPeekController(provider: provider, showWindows: false, automaticTicks: false)
@@ -43,6 +62,11 @@ enum PinsPeekVerification {
                 entry, source: sourceID, entered: true, enabled: enabled,
                 sourceFrame: source, screenFrame: screen, now: time)
         }
+        entry.focused = true
+        enter(0)
+        peek.tick(now: 1, pointer: pointer)
+        try require(provider.calls == 0 && !peek.isActive, "Selected window started a peek")
+        entry.focused = false
         enter(0)
         peek.tick(now: 0.59, pointer: pointer)
         try require(provider.calls == 0, "Peek appeared before 0.6 seconds")
@@ -131,6 +155,21 @@ enum PinsPeekVerification {
         windowButton.updateAttention(nil, pulsing: false)
         try require(windowButton.unreadBadge == nil, "Disabled badge remained visible")
         print("PASS: unread badge, brief pulse, Reduce Motion and disabled attention visuals")
+        var attention = AppAttention()
+        attention.update([:], focusedApp: nil, now: 0)
+        attention.update(["Terminal": .count(1), "com.apple.Terminal": .count(1)], focusedApp: nil, now: 1)
+        bar.updateAttention(attention, mode: .badgesAndPulse, now: 1)
+        let terminalButtons = FeatureViewVerification.descendants(bar).compactMap { $0 as? WindowButton }
+            .filter { $0.entry.appName == "Terminal" }
+        try require(
+            terminalButtons.count == 2
+                && terminalButtons.allSatisfy {
+                    $0.unreadBadge == nil && $0.layer?.animation(forKey: "unreadPulse") == nil
+                }, "Terminal bell was broadcast to unrelated sessions")
+        try require(
+            pins.first { $0.launcher.name == "Terminal" }?.unreadBadge == .count(1),
+            "Terminal's pinned icon lost the app-wide alert")
+        print("PASS: Terminal bell badges stay on the pinned icon without alerting unrelated sessions")
 
         let settings = SettingsWindowController(
             features: features,

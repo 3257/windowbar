@@ -39,6 +39,7 @@ final class HoverPreviewController: NSObject {
             return
         }
         hide()
+        guard !entry.focused else { return }
         self.actionsEnabled = actionsEnabled
         hoveredEntryID = entry.id
         let captured = generation.value

@@ -48,7 +48,7 @@ final class WindowPeekController {
             return
         }
         hide()
-        guard enabled, let entry, !entry.minimized, let frame = entry.frame,
+        guard enabled, let entry, !entry.focused, !entry.minimized, let frame = entry.frame,
             let destination = PeekLayout.frame(window: frame, screen: screenFrame)
         else { return }
         self.source = source

@@ -18,17 +18,33 @@ final class ReservedWindowAreaTests: XCTestCase {
         XCTAssertEqual(frame.height, 1328)
     }
 
-    func testOrdinaryHalfScreenAndAlreadyFittedWindowsStayUnchanged() {
+    func testOrdinaryAndAlreadyFittedWindowsStayUnchanged() {
         let area = ReservedWindowArea(
             displayID: 1, visibleFrame: visible,
             barFrame: CGRect(x: 12, y: 8, width: 2536, height: 66))
         for frame in [
             CGRect(x: 100, y: 150, width: 1000, height: 700),
-            CGRect(x: 0, y: 0, width: 1280, height: 1410),
             CGRect(x: 0, y: 82, width: 2560, height: 1328),
         ] {
             XCTAssertNil(area.fittedFrame(for: frame))
         }
+    }
+
+    func testHeightOnlyAndGridSnappedMaximizeReserveSpace() throws {
+        let area = ReservedWindowArea(
+            displayID: 1, visibleFrame: visible,
+            barFrame: CGRect(x: 12, y: 8, width: 2536, height: 66))
+        let terminal = CGRect(x: 0, y: 11, width: 2560, height: 1399)
+        XCTAssertEqual(try XCTUnwrap(area.fittedFrame(for: terminal)).minY, 82)
+        let vertical = CGRect(x: 200, y: 11, width: 1000, height: 1399)
+        let target = try XCTUnwrap(area.fittedFrame(for: vertical))
+        XCTAssertEqual(target.minX, 200)
+        XCTAssertEqual(target.width, 1000)
+        let snapped = CGRect(x: 200, y: 89, width: 1000, height: 1321)
+        XCTAssertTrue(ReservedWindowArea.fits(snapped, within: target))
+        XCTAssertFalse(
+            ReservedWindowArea.fits(CGRect(x: 200, y: 70, width: 1000, height: 1340), within: target))
+        XCTAssertFalse(ReservedWindowArea.fits(snapped.offsetBy(dx: 20, dy: 0), within: target))
     }
 
     func testNegativeDisplayCoordinatesAndExistingDockSpace() throws {

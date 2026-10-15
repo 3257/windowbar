@@ -47,7 +47,20 @@ enum FeatureViewVerification {
 
     static func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
     static func wait(_ seconds: TimeInterval) {
-        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: min(deadline, Date().addingTimeInterval(0.01)))
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+    }
+
+    static func waitUntil(_ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(2)
+        repeat {
+            if condition() { return true }
+            wait(0.02)
+        } while Date() < deadline
+        return condition()
     }
 
     static func run(features: FeatureCoordinator, directory: URL) throws {
@@ -70,7 +83,8 @@ enum FeatureViewVerification {
         let buttons = descendants(bar).compactMap { $0 as? WindowButton }
         let pins = descendants(bar).compactMap { $0 as? LauncherButton }
         try require(buttons.count == 5 && pins.count == 2, "Native bar did not render all entries")
-        try require(bar.launchScroll.frame.minX > bar.scroll.frame.maxX, "Pinned apps are not on the right")
+        try require(
+            bar.launchScroll.frame.maxX < bar.scroll.frame.minX, "Default pinned apps are not on the left")
         try require(!panel.canBecomeKey && !panel.canBecomeMain, "Taskbar would steal keyboard focus")
         let focused = buttons.first { $0.entry.focused }!
         let normal = buttons.first { !$0.entry.focused }!
@@ -80,7 +94,7 @@ enum FeatureViewVerification {
         try require(
             focused.accessibilityLabel()?.contains("Work") == true,
             "Profile name is missing from accessibility")
-        print("PASS: native Quiet Shelf layout, trailing pins, focus size, and profile accessibility")
+        print("PASS: native Quiet Shelf layout, leading pins, focus size, and profile accessibility")
 
         var selected: String?
         bar.onSelect = { selected = $0.id }
@@ -133,11 +147,12 @@ enum FeatureViewVerification {
 
         let deferred = DeferredPreview()
         let hover = HoverPreviewController(provider: deferred, showWindows: false)
-        let target = crowdedButtons[0]
+        let target = crowdedButtons.first { !$0.entry.focused }!
         hover.hover(target.entry, button: target, entered: true, mode: .thumbnails)
-        wait(0.52)
+        wait(0.25)
+        try require(hover.shownEntryID == nil, "Hover preview appeared before its intent delay")
         try require(
-            hover.shownEntryID == target.entry.id && deferred.calls == 1,
+            waitUntil { hover.shownEntryID == target.entry.id && deferred.calls == 1 },
             "Hover intent delay did not show preview")
         hover.hide()
         deferred.completion?(.image(NSImage(size: NSSize(width: 80, height: 60))))
@@ -147,8 +162,9 @@ enum FeatureViewVerification {
         wait(0.52)
         try require(hover.shownEntryID == nil, "Removed window's pending hover opened")
         hover.hover(target.entry, button: target, entered: true, mode: .titles)
-        wait(0.52)
-        try require(deferred.calls == 1, "Title-only hover requested capture")
+        try require(
+            waitUntil { hover.shownEntryID == target.entry.id } && deferred.calls == 1,
+            "Title-only hover did not appear or requested capture")
         hover.hide()
         print("PASS: hover delay, title fallback, stale-capture dismissal, and removed-window cancellation")
 

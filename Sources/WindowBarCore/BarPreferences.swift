@@ -13,7 +13,7 @@ public struct BarPreferences: Equatable, Codable {
     public var searchIncludesMinimized = true
     public var groupingMode: GroupingMode = .none
     public var hoverActionsEnabled = true
-    public var pinnedSide: PinnedSide = .right
+    public var pinnedSide: PinnedSide = .left
     public var hoverPeekEnabled = true
     public var notificationMode: NotificationMode = .badgesAndPulse
     public var autoHideEnabled = false
@@ -57,7 +57,7 @@ public struct BarPreferences: Equatable, Codable {
             try values.decodeIfPresent(Bool.self, forKey: .searchIncludesMinimized) ?? true
         groupingMode = try values.decodeIfPresent(GroupingMode.self, forKey: .groupingMode) ?? .none
         hoverActionsEnabled = try values.decodeIfPresent(Bool.self, forKey: .hoverActionsEnabled) ?? true
-        pinnedSide = try values.decodeIfPresent(PinnedSide.self, forKey: .pinnedSide) ?? .right
+        pinnedSide = try values.decodeIfPresent(PinnedSide.self, forKey: .pinnedSide) ?? .left
         hoverPeekEnabled = try values.decodeIfPresent(Bool.self, forKey: .hoverPeekEnabled) ?? true
         notificationMode =
             try values.decodeIfPresent(NotificationMode.self, forKey: .notificationMode) ?? .badgesAndPulse

@@ -51,6 +51,12 @@ final class AccessibilityWindowService: WindowDiscovering {
             guard status == .success, let windows = rawWindows as? [AXUIElement] else { continue }
             let focusedValue = attribute(appElement, kAXFocusedWindowAttribute)
             let appProfiles = profiles.profiles(for: app)
+            let focusedProfile = profiles.focusedProfile(in: appElement, profiles: appProfiles)
+            let focusedAfter = attribute(appElement, kAXFocusedWindowAttribute)
+            let stableFocus =
+                focusedValue.map { before in
+                    focusedAfter.map { CFEqual(before, $0) } == true
+                } == true
             for (index, window) in windows.enumerated() {
                 AXUIElementSetMessagingTimeout(window, 0.15)
                 let role = attribute(window, kAXRoleAttribute) as? String
@@ -77,9 +83,10 @@ final class AccessibilityWindowService: WindowDiscovering {
                     } == true
                 let axFrame = hasFrame ? CGRect(origin: point, size: size) : nil
                 let title = (rawTitle?.isEmpty == false ? rawTitle : nil) ?? "Window \(index + 1)"
+                let id = "\(app.processIdentifier):\(CFHash(window))"
                 result.append(
                     WindowEntry(
-                        id: "\(app.processIdentifier):\(CFHash(window))", pid: app.processIdentifier,
+                        id: id, pid: app.processIdentifier,
                         appName: app.localizedName ?? "App",
                         title: title, icon: app.icon, element: window, minimized: minimized, focused: focused,
                         frame: axFrame.map {
@@ -88,10 +95,14 @@ final class AccessibilityWindowService: WindowDiscovering {
                         windowID: WindowCaptureMatcher.match(
                             pid: app.processIdentifier, frame: axFrame, title: title,
                             candidates: captureCandidates),
-                        profile: profiles.profile(for: window, profiles: appProfiles)
+                        profile: profiles.profile(
+                            for: window, profiles: appProfiles, id: id,
+                            focusedProfile: stableFocus && focusedValue.map { CFEqual($0, window) } == true
+                                ? focusedProfile : nil)
                     ))
             }
         }
+        profiles.retainOnly(Set(result.map(\.id)))
         cached = result.sorted {
             let comparison = $0.appName.localizedCaseInsensitiveCompare($1.appName)
             return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending

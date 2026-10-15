@@ -13,12 +13,26 @@ public struct ReservedWindowArea {
     }
 
     public func fittedFrame(for window: CGRect) -> CGRect? {
-        guard Self.matches(window, visibleFrame, tolerance: 8), !barFrame.isEmpty,
+        // Terminal and other apps size in rows/cells, leaving a small screen-edge gap.
+        // Height-only zoom and side-by-side maximized windows need the same clearance.
+        guard !window.isEmpty, !window.isInfinite, !window.isNull,
+            abs(window.maxY - visibleFrame.maxY) <= 32,
+            abs(window.minY - visibleFrame.minY) <= 32,
+            window.minX >= visibleFrame.minX - 8, window.maxX <= visibleFrame.maxX + 8,
+            !barFrame.isEmpty,
             visibleFrame.intersects(barFrame)
         else { return nil }
         let bottom = barFrame.maxY + 8
         guard bottom > window.minY, window.maxY - bottom >= 200 else { return nil }
         return CGRect(x: window.minX, y: bottom, width: window.width, height: window.maxY - bottom)
+    }
+
+    /// Accept a smaller grid-snapped height while keeping the requested top and sides.
+    public static func fits(_ actual: CGRect, within target: CGRect) -> Bool {
+        !actual.isEmpty && !actual.isInfinite && !actual.isNull && actual.height >= 200
+            && abs(actual.minX - target.minX) <= 2 && abs(actual.maxX - target.maxX) <= 2
+            && abs(actual.maxY - target.maxY) <= 2 && actual.minY >= target.minY - 1
+            && actual.minY <= target.minY + 64
     }
 
     public static func matches(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 2) -> Bool {

@@ -133,6 +133,12 @@ final class FeatureTests: XCTestCase {
             ProfileBadgeMatcher.match(controlText: "Profile: Work", profiles: profiles)?.directory,
             "Profile 1")
         XCTAssertNil(ProfileBadgeMatcher.match(controlText: "A page about Work", profiles: profiles))
+        XCTAssertEqual(
+            ProfileBadgeMatcher.match(controlText: "Ada (Work)", profiles: profiles)?.directory, "Profile 1")
+        XCTAssertEqual(
+            ProfileBadgeMatcher.matchMenuItem("Work (ada@example.test)", profiles: profiles)?.directory,
+            "Profile 1")
+        XCTAssertNil(ProfileBadgeMatcher.matchMenuItem("Some Work page", profiles: profiles))
         XCTAssertNil(
             ProfileBadgeMatcher.match(
                 controlText: "Profile: Work",

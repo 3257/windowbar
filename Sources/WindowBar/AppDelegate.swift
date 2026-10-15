@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let diagnostics: Diagnostics
     private let previews = HoverPreviewController()
     private let peek = WindowPeekController()
+    private let workAreaQueue = DispatchQueue(label: "local.windowbar.work-area", qos: .userInitiated)
     private var recency = WindowRecency()
     private var attention = AppAttention()
     private let badgeReader: AppBadgeReading
@@ -135,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cancelHover()
         if let zoomMonitor { NSEvent.removeMonitor(zoomMonitor) }
         zoomMonitor = nil
-        scanner.sync { workAreas.restoreAll() }
+        workAreaQueue.sync { workAreas.stop() }
         for source in terminationSignals { source.cancel() }
         if !demo { diagnostics.record(.shutdownRequested) }
         let restored = dock.restore()
@@ -212,6 +213,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             bar.onLauncherHover = { [weak self] launcher, _, button, entered in
                 guard let self else { return }
                 let windows = self.windows(for: launcher)
+                if entered && windows.contains(where: \.focused) {
+                    self.cancelHover()
+                    return
+                }
                 let id = self.recency.mostRecent(in: windows.map(\.id))
                 let target = windows.first { $0.id == id }
                 if entered { self.previews.hide() }
@@ -310,8 +315,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func render() {
         entries = features.ordered(entries)
         let available = Set(entries.map(\.id))
-        previews.retainOnly(available)
-        peek.retainOnly(available)
+        let hoverable = Set(entries.filter { !$0.focused }.map(\.id))
+        previews.retainOnly(hoverable)
+        peek.retainOnly(hoverable)
         recency.update(available: available, focused: entries.first(where: \.focused)?.id)
         let trusted = demo || AXIsProcessTrusted()
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
@@ -335,20 +341,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateReservedWindowSpace() {
-        guard !demo && !recoveryMode else { return }
+        let areas = reservedWindowAreas()
+        let windows = entries
+        let mouseDown = NSEvent.pressedMouseButtons != 0
+        workAreaQueue.async { [workAreas] in
+            workAreas.update(entries: windows, areas: areas, mouseDown: mouseDown)
+        }
+    }
+
+    private func reservedWindowAreas() -> [ReservedWindowArea] {
+        guard !demo && !recoveryMode else { return [] }
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
         let reservesSpace = !hidden && !features.preferences.value.autoHideEnabled && AXIsProcessTrusted()
-        let areas =
+        return
             reservesSpace
             ? screens.map {
                 ReservedWindowArea(
                     displayID: displayID($0), visibleFrame: $0.visibleFrame, barFrame: barFrame(for: $0))
             } : []
-        let windows = entries
-        let mouseDown = NSEvent.pressedMouseButtons != 0
-        scanner.async { [workAreas] in
-            workAreas.update(entries: windows, areas: areas, mouseDown: mouseDown)
-        }
     }
 
     private func configureZoomMonitor() {
@@ -358,16 +368,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 !self.features.preferences.value.autoHideEnabled,
                 let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
             else { return }
-            let windows = self.entries.filter { $0.pid == pid }
+            let windows = self.entries
+            let areas = self.reservedWindowAreas()
+            let layoutQueue = self.workAreaQueue
             let pointer = NSEvent.mouseLocation
-            let now = ProcessInfo.processInfo.systemUptime
-            self.scanner.async { [workAreas = self.workAreas] in
+            let now = event.timestamp
+            layoutQueue.async { [workAreas = self.workAreas] in
                 guard
                     let focused = Accessibility.element(
                         attribute(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute)),
-                    let entry = windows.first(where: { $0.element.map { CFEqual($0, focused) } == true })
+                    let index = windows.firstIndex(where: {
+                        $0.pid == pid && $0.element.map { CFEqual($0, focused) } == true
+                    })
                 else { return }
+                let entry = windows[index]
                 workAreas.requestRestore(id: entry.id, pointer: pointer, now: now)
+                // Apply zoom clearance without waiting for a full scan of every app.
+                layoutQueue.asyncAfter(deadline: .now() + 0.15) {
+                    guard let state = AccessibilityWindowResizer().state(of: entry) else { return }
+                    var updated = windows
+                    updated[index].frame = state.frame
+                    workAreas.update(
+                        entries: updated, areas: areas, mouseDown: NSEvent.pressedMouseButtons != 0)
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.refresh() }
         }
