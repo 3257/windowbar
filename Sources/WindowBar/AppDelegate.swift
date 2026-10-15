@@ -3,6 +3,7 @@ import ApplicationServices
 import WindowBarCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let recoveryMode = ProcessInfo.processInfo.environment["WINDOWBAR_RECOVERY_MODE"] == "1"
     private var panels: [TaskbarPanel] = []
     private var bars: [BarView] = []
     private var statusItem: NSStatusItem?
@@ -27,9 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let features: FeatureCoordinator
     private let diagnostics: Diagnostics
     private let previews = HoverPreviewController()
+    private let peek = WindowPeekController()
+    private var recency = WindowRecency()
+    private var attention = AppAttention()
+    private let badgeReader: AppBadgeReading
     private lazy var shortcuts = GlobalShortcuts()
     private lazy var managementMenus = BarManagementMenus(features: features)
-    private var settings: SettingsWindowController?
+    private let settingsProcess = SettingsProcessController()
     private var lastTrusted: Bool?
     private var terminationSignals: [DispatchSourceSignal] = []
 
@@ -38,7 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowService: WindowDiscovering = AccessibilityWindowService(),
         windowActions: WindowActing = WindowActions(),
         launcherMenus: LauncherMenuProviding = LauncherMenuBuilder(),
-        features: FeatureCoordinator = FeatureCoordinator(), diagnostics: Diagnostics = .shared
+        features: FeatureCoordinator = FeatureCoordinator(), diagnostics: Diagnostics = .shared,
+        badgeReader: AppBadgeReading = DockBadgeReader()
     ) {
         self.demo = demo
         self.screenshots = screenshots
@@ -48,9 +54,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.launcherMenus = launcherMenus
         self.features = features
         self.diagnostics = diagnostics
+        self.badgeReader = badgeReader
         super.init()
+        if recoveryMode {
+            replacesDock = false
+            allDisplays = true
+        }
     }
-    private var replacesDock = UserDefaults.standard.object(forKey: "replacesDock") as? Bool ?? true
+    private var replacesDock = UserDefaults.standard.object(forKey: "replacesDock") as? Bool ?? false
     private var launchers: [LauncherEntry] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -71,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             shortcuts.onAction = { [weak self] in self?.performShortcut($0) }
             do {
                 try shortcuts.configure(
-                    features.preferences.value.activeShortcuts)
+                    recoveryMode ? [] : features.preferences.value.activeShortcuts)
             } catch { diagnostics.record(.shortcutRegistrationFailed) }
             for value in [SIGTERM, SIGINT, SIGHUP] {
                 signal(value, SIG_IGN)
@@ -81,16 +92,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 terminationSignals.append(source)
             }
         }
-        if !demo && replacesDock && AXIsProcessTrusted() { _ = dock.enable() }
+        if !recoveryMode && !demo && replacesDock && AXIsProcessTrusted() { _ = dock.enable() }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem?.button?.image = NSImage(
             systemSymbolName: "rectangle.split.3x1", accessibilityDescription: "WindowBar")
         statusItem?.menu = makeMenu()
         if screenshots { createBackdrop() }
+        peek.onSelect = { [weak self] in self?.select($0) }
         previews.onSelect = { [weak self] in self?.select($0) }
         previews.onMinimize = { [weak self] in self?.minimize($0) }
         previews.onClose = { [weak self] in self?.closeWindow($0) }
         rebuildPanels()
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(preferencesChanged), name: .windowBarPreferencesChanged, object: nil)
         configureAutoHideTimer()
         NotificationCenter.default.addObserver(
             self, selector: #selector(menuBegan), name: NSMenu.didBeginTrackingNotification, object: nil)
@@ -103,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(refreshAppearance),
             name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(
-            self, selector: #selector(refresh),
+            self, selector: #selector(activeApplicationChanged),
             name: NSWorkspace.didActivateApplicationNotification, object: nil)
         timer = Timer.scheduledTimer(
             timeInterval: 1.5, target: self, selector: #selector(refresh), userInfo: nil, repeats: true)
@@ -113,8 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         timer?.invalidate()
         edgeTimer?.invalidate()
+        settingsProcess.stop()
         switcher?.dismiss()
-        previews.hide()
+        cancelHover()
         for source in terminationSignals { source.cancel() }
         if !demo { diagnostics.record(.shutdownRequested) }
         let restored = dock.restore()
@@ -139,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func rebuildPanels() {
-        previews.hide()
+        cancelHover()
         for panel in panels { panel.close() }
         panels = []
         bars = []
@@ -160,12 +175,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.hasShadow = true
             panel.title = "WindowBar"
             let bar = BarView(frame: NSRect(origin: .zero, size: frame.size))
+            if recoveryMode {
+                bar.blendingMode = .withinWindow
+                bar.state = .inactive
+                bar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            }
             bar.onSearch = { [weak self] in self?.showSwitcher() }
-            bar.onGroupToggle = { [weak self] in self?.previews.hide() }
+            bar.onGroupToggle = { [weak self] in self?.cancelHover() }
             bar.onSelect = { [weak self] in self?.select($0) }
             bar.onMinimize = { [weak self] in self?.minimize($0) }
             bar.onClose = { [weak self] in self?.closeWindow($0) }
-            bar.onLaunch = { NSWorkspace.shared.open($0.url) }
+            bar.onLaunch = { [weak self] in self?.launch($0) }
             bar.makeLauncherMenu = { [weak self] launcher, windows in
                 guard let self else { return NSMenu() }
                 let menu = self.launcherMenus.makeMenu(
@@ -174,24 +194,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return menu
             }
             bar.onWindowReorder = { [weak self] source, target, after in
-                self?.previews.hide()
+                self?.cancelHover()
                 self?.features.moveWindow(source, relativeTo: target, after: after)
                 self?.render()
             }
             bar.onLauncherReorder = { [weak self] source, target, after in
                 guard let self else { return }
-                self.previews.hide()
+                self.cancelHover()
                 self.changePins { try self.features.moveLauncher(source, relativeTo: target, after: after) }
+            }
+            bar.onLauncherHover = { [weak self] launcher, _, button, entered in
+                guard let self else { return }
+                let windows = self.windows(for: launcher)
+                let id = self.recency.mostRecent(in: windows.map(\.id))
+                let target = windows.first { $0.id == id }
+                if entered { self.previews.hide() }
+                self.hoverPeek(
+                    target, source: "launcher:" + launcher.url.path, button: button, entered: entered)
             }
             bar.onHover = { [weak self] entry, button, entered in
                 guard let self else { return }
+                self.hoverPeek(entry, source: "window:" + entry.id, button: button, entered: entered)
+                if self.recoveryMode { return }
                 self.previews.hover(
                     entry, button: button, entered: entered,
                     mode: self.features.preferences.value.previewMode,
                     actionsEnabled: self.features.preferences.value.hoverActionsEnabled
                 )
             }
-            bar.onDragStart = { [weak self] in self?.previews.hide() }
+            bar.onDragStart = { [weak self] in self?.cancelHover() }
             bar.augmentWindowMenu = { [weak self] menu, entry in
                 guard let self else { return }
                 self.managementMenus.augmentWindow(menu, entry: entry, entries: self.entries)
@@ -247,8 +278,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         scanning = true
         let captured = scanGeneration.value
         let service = windowService
+        let badgeReader = self.badgeReader
+        let readsBadges = !recoveryMode && features.preferences.value.notificationMode != .off
         scanner.async { [weak self] in
             let windows = service.readWindows()
+            let badges = readsBadges ? badgeReader.read() : nil
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.scanning = false
@@ -257,6 +291,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
                 self.entries = windows
+                if let badges {
+                    self.attention.update(
+                        badges, focusedApp: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                        now: ProcessInfo.processInfo.systemUptime)
+                }
                 self.render()
             }
         }
@@ -264,7 +303,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func render() {
         entries = features.ordered(entries)
-        previews.retainOnly(Set(entries.map(\.id)))
+        let available = Set(entries.map(\.id))
+        previews.retainOnly(available)
+        peek.retainOnly(available)
+        recency.update(available: available, focused: entries.first(where: \.focused)?.id)
         let trusted = demo || AXIsProcessTrusted()
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
         for (index, screen) in screens.enumerated() where panels.indices.contains(index) {
@@ -276,15 +318,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let displays = NSScreen.screens.map { DisplayRegion(id: displayID($0), frame: $0.frame) }
         for (bar, screen) in zip(bars, screens) {
             let visible = features.visible(entries, displayID: displayID(screen), displays: displays)
+            var displayedPreferences = features.preferences.value
+            if recoveryMode { displayedPreferences.searchEnabled = false }
             bar.update(
                 entries: visible, trusted: trusted, launchers: launchers,
-                preferences: features.preferences.value)
+                preferences: displayedPreferences)
+            bar.updateAttention(attention, mode: features.preferences.value.notificationMode)
         }
     }
 
     private func select(_ entry: WindowEntry) {
         guard demo || entry.element != nil else { return }
-        previews.hide()
+        cancelHover()
         switcher?.dismiss()
         scanGeneration.invalidate()
         entries = entries.map { existing in
@@ -299,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func minimize(_ entry: WindowEntry) {
+        cancelHover()
         scanGeneration.invalidate()
         if entry.minimized {
             select(entry)
@@ -309,6 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closeWindow(_ entry: WindowEntry) {
+        cancelHover()
         scanGeneration.invalidate()
         windowActions.close(entry)
         refresh()
@@ -326,7 +373,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        let title = NSMenuItem(title: demo ? "WindowBar · Demo" : "WindowBar", action: nil, keyEquivalent: "")
+        menu.autoenablesItems = false
+        let title = NSMenuItem(
+            title: recoveryMode ? "WindowBar · Recovery" : (demo ? "WindowBar · Demo" : "WindowBar"),
+            action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
         menu.addItem(.separator())
@@ -346,6 +396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: shortcut)
             item.target = self
             if action == #selector(showSwitcher) { item.isEnabled = features.preferences.value.searchEnabled }
+            if recoveryMode
+                && [#selector(showSettings), #selector(showSwitcher), #selector(toggleDock)].contains(action)
+            {
+                item.isEnabled = false
+            }
             if action == #selector(toggleDisplays) { item.state = allDisplays ? .on : .off }
             if action == #selector(toggleDock) { item.state = replacesDock ? .on : .off }
             menu.addItem(item)
@@ -358,7 +413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleVisibility() {
-        previews.hide()
+        cancelHover()
         hidden.toggle()
         configureAutoHideTimer()
         if hidden {
@@ -371,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleDock() {
+        guard !recoveryMode else { return }
         replacesDock.toggle()
         if replacesDock && !hidden && !demo && AXIsProcessTrusted() {
             _ = dock.enable()
@@ -408,47 +464,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func refreshAppearance() {
-        previews.hide()
+        cancelHover()
         rebuildPanels()
     }
 
     @objc private func showSettings() {
-        previews.hide()
-        if settings == nil {
-            let controller = SettingsWindowController(features: features)
-            controller.onPreferencesChanged = { [weak self] updated in
-                guard let self else { return }
-                let previous = self.features.preferences.value
-                if !self.demo {
-                    try self.shortcuts.configure(updated.activeShortcuts)
-                }
-                do { try self.features.preferences.save(updated) } catch {
-                    if !self.demo {
-                        try? self.shortcuts.configure(previous.activeShortcuts)
-                    }
-                    throw error
-                }
-                self.previews.hide()
-                self.configureAutoHideTimer()
-                self.launchers = self.features.preferences.launchers()
-                self.render()
-                self.statusItem?.menu = self.makeMenu()
-                if !self.demo {
-                    self.diagnostics.record(
-                        previous.shortcuts == updated.shortcuts
-                            && previous.shortcutsEnabled == updated.shortcutsEnabled
-                            ? .preferencesChanged : .shortcutsChanged)
-                }
-            }
-            controller.onError = { [weak self] _ in self?.diagnostics.record(.settingsChangeFailed) }
-            settings = controller
+        guard !recoveryMode else { return }
+        cancelHover()
+        do { try settingsProcess.show() } catch { diagnostics.record(.settingsChangeFailed) }
+    }
+
+    @objc private func preferencesChanged() {
+        guard !recoveryMode else { return }
+        let previous = features.preferences.value
+        let updated = features.preferences.persistedValue()
+        do {
+            try updated.validate()
+            if !demo { try shortcuts.configure(updated.activeShortcuts) }
+            try features.preferences.save(updated)
+            cancelHover()
+            configureAutoHideTimer()
+            launchers = features.preferences.launchers()
+            render()
+            statusItem?.menu = makeMenu()
+            settingsProcess.preferencesApplied()
+            if !demo { diagnostics.record(.preferencesChanged) }
+        } catch {
+            if !demo { try? shortcuts.configure(previous.activeShortcuts) }
+            try? features.preferences.save(previous)
+            DistributedNotificationCenter.default().postNotificationName(
+                .windowBarPreferencesRejected, object: nil, userInfo: nil, deliverImmediately: true)
+            diagnostics.record(.settingsChangeFailed)
         }
-        settings?.present()
     }
 
     @objc private func showSwitcher() {
+        guard !recoveryMode else { return }
         guard features.preferences.value.searchEnabled else { return }
-        previews.hide()
+        cancelHover()
         let previousApp = NSWorkspace.shared.frontmostApplication
         if switcher == nil { switcher = WindowSwitcherController() }
         switcher?.onSelect = { [weak self] in self?.select($0) }
@@ -469,7 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func configureAutoHideTimer() {
         edgeTimer?.invalidate()
         edgeTimer = nil
-        guard features.preferences.value.autoHideEnabled, !hidden else { return }
+        guard !recoveryMode, features.preferences.value.autoHideEnabled, !hidden else { return }
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateAutoHide() }
         edgeTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -481,13 +534,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let point = NSEvent.mouseLocation
         for (panel, controller) in zip(panels, autoHideControllers) {
             let interacting =
-                trackingMenus > 0 || settings?.window?.isVisible == true
+                trackingMenus > 0 || settingsProcess.processIdentifier != nil
                 || switcher?.window?.isVisible == true
                 || previews.interactionFrame?.contains(point) == true
+                || peek.isActive
                 || (!controller.hidden && NSEvent.pressedMouseButtons != 0)
             controller.update(
-                panel: panel, enabled: value.autoHideEnabled, delay: value.autoHideDelay,
+                panel: panel, enabled: value.autoHideEnabled && !recoveryMode, delay: value.autoHideDelay,
                 pointer: point, interaction: interacting, now: ProcessInfo.processInfo.systemUptime)
+        }
+    }
+
+    private func cancelHover() {
+        peek.hide()
+        previews.hide()
+    }
+
+    @objc private func activeApplicationChanged() {
+        cancelHover()
+        attention.update(
+            attention.badges, focusedApp: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+            now: ProcessInfo.processInfo.systemUptime)
+        refresh()
+    }
+
+    private func hoverPeek(_ entry: WindowEntry?, source: String, button: NSView, entered: Bool) {
+        guard let host = button.window, let screen = host.screen else { return }
+        peek.hover(
+            entry, source: source, entered: entered,
+            enabled: features.preferences.value.hoverPeekEnabled && !demo && !recoveryMode,
+            sourceFrame: host.convertToScreen(button.convert(button.bounds, to: nil)),
+            screenFrame: screen.visibleFrame)
+    }
+
+    private func windows(for launcher: LauncherEntry) -> [WindowEntry] {
+        let identifier = Bundle(url: launcher.url)?.bundleIdentifier
+        let pids = Set(
+            identifier.map {
+                NSRunningApplication.runningApplications(withBundleIdentifier: $0).map(\.processIdentifier)
+            } ?? [])
+        return entries.filter { pids.contains($0.pid) || ($0.element == nil && $0.appName == launcher.name) }
+    }
+
+    private func launch(_ launcher: LauncherEntry) {
+        if let target = peek.activeEntry, windows(for: launcher).contains(where: { $0.id == target.id }) {
+            select(target)
+        } else {
+            cancelHover()
+            NSWorkspace.shared.open(launcher.url)
         }
     }
 
@@ -496,7 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try change()
             launchers = features.preferences.launchers()
             render()
-            settings?.refresh()
+            settingsProcess.preferencesApplied()
         } catch { NSSound.beep() }
     }
 

@@ -21,8 +21,19 @@ final class PreferencesStore {
         try updated.validate()
         let data = try JSONEncoder().encode(updated)
         defaults.set(data, forKey: key)
+        defaults.synchronize()
         value = updated
     }
+
+    func persistedValue() -> BarPreferences {
+        defaults.synchronize()
+        guard let data = defaults.data(forKey: key),
+            let saved = try? JSONDecoder().decode(BarPreferences.self, from: data)
+        else { return value }
+        return saved
+    }
+
+    func reload() { value = persistedValue() }
 
     func importLaunchersIfNeeded(_ launchers: [LauncherEntry]) throws {
         guard value.pinnedPaths == nil else { return }

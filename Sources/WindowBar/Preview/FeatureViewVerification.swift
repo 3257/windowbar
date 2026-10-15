@@ -157,7 +157,7 @@ enum FeatureViewVerification {
             features: features, startup: LoginItemService(backend: login, installed: { true }),
             installer: ApplicationInstaller(
                 destination: directory.appendingPathComponent("Installed.app"), isRunning: { _ in false },
-                verify: { _ in }), logDirectory: directory)
+                verify: { _ in }), logDirectory: directory, decorateWindow: false)
         defer { settings.close() }
         settings.scope.selectItem(at: 1)
         settings.changeScope()

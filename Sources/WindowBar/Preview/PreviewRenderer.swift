@@ -40,6 +40,11 @@ enum PreviewRenderer {
             if name == "dark" {
                 try writeView(scene, to: directory.appendingPathComponent("overview.png"))
                 try writeView(bar, to: directory.appendingPathComponent("windowbar.png"))
+                var left = BarPreferences()
+                left.pinnedSide = .left
+                bar.update(
+                    entries: sampleWindows(), trusted: true, launchers: sampleLaunchers(), preferences: left)
+                try writeView(bar, to: directory.appendingPathComponent("pins-left.png"))
             }
             panel.close()
         }
@@ -58,7 +63,8 @@ enum PreviewRenderer {
         try preferences.importLaunchersIfNeeded(sampleLaunchers())
         let controller = SettingsWindowController(
             features: FeatureCoordinator(preferences: preferences),
-            startup: LoginItemService(backend: FeatureVerification.LoginBackend(), installed: { true }))
+            startup: LoginItemService(backend: FeatureVerification.LoginBackend(), installed: { true }),
+            decorateWindow: false)
         defer { controller.close() }
         if let view = controller.tabs.selectedTabViewItem?.view {
             view.wantsLayer = true
@@ -72,7 +78,13 @@ enum PreviewRenderer {
             view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
             try writeView(view, to: directory.appendingPathComponent("behavior.png"))
         }
-        let switcher = WindowSwitcherController()
+        controller.tabs.selectTabViewItem(at: 2)
+        if let view = controller.tabs.selectedTabViewItem?.view {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            try writeView(view, to: directory.appendingPathComponent("pinned-settings.png"))
+        }
+        let switcher = WindowSwitcherController(decorateWindow: false)
         defer { switcher.close() }
         switcher.update(entries: sampleWindows(), preferences: BarPreferences())
         switcher.search.stringValue = "chrome"

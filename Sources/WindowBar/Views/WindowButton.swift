@@ -154,6 +154,7 @@ final class WindowButton: ReorderableButton {
             ).fill()
         }
         drawDropHighlight()
+        drawUnreadBadge()
     }
 
     @objc private func selectWindow() { onSelect?(entry) }

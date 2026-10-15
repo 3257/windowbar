@@ -32,6 +32,7 @@ final class BarView: NSVisualEffectView {
     var makeLauncherMenu: ((LauncherEntry, [WindowEntry]) -> NSMenu)?
     var onWindowReorder: ((String, String, Bool) -> Void)?
     var onLauncherReorder: ((String, String, Bool) -> Void)?
+    var onLauncherHover: ((LauncherEntry, [WindowEntry], LauncherButton, Bool) -> Void)?
     var onHover: ((WindowEntry, WindowButton, Bool) -> Void)?
     var onDragStart: (() -> Void)?
     var augmentWindowMenu: ((NSMenu, WindowEntry) -> Void)?
@@ -95,6 +96,8 @@ final class BarView: NSVisualEffectView {
         }
         for launcher in launchers where launcherButtons[launcher.url.path] == nil {
             let button = LauncherButton(launcher)
+            button.onHover = { [weak self] in self?.onLauncherHover?($0, $1, $2, $3) }
+            button.onDismissHover = { [weak self] in self?.onDragStart?() }
             button.onLaunch = { [weak self] in self?.onLaunch?($0) }
             button.makeContextMenu = { [weak self] launcher, windows in
                 self?.makeLauncherMenu?(launcher, windows) ?? NSMenu()
@@ -106,11 +109,13 @@ final class BarView: NSVisualEffectView {
         }
         for launcher in launchers {
             let identifier = Bundle(url: launcher.url)?.bundleIdentifier
-            let pid = identifier.flatMap {
-                NSRunningApplication.runningApplications(withBundleIdentifier: $0).first?.processIdentifier
-            }
+            let pids = Set(
+                identifier.map {
+                    NSRunningApplication.runningApplications(withBundleIdentifier: $0).map(
+                        \.processIdentifier)
+                } ?? [])
             launcherButtons[launcher.url.path]?.windows = entries.filter {
-                $0.pid == pid || ($0.element == nil && $0.appName == launcher.name)
+                pids.contains($0.pid) || ($0.element == nil && $0.appName == launcher.name)
             }
         }
         let keys = Set(entries.map(\.id))
@@ -151,16 +156,37 @@ final class BarView: NSVisualEffectView {
         needsDisplay = true
     }
 
+    func updateAttention(
+        _ attention: AppAttention, mode: BarPreferences.NotificationMode,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        for button in buttons.values {
+            let id = button.entry.appIdentity
+            button.updateAttention(
+                mode == .off ? nil : attention.badges[id],
+                pulsing: mode == .badgesAndPulse && attention.isPulsing(id, now: now))
+        }
+        for button in launcherButtons.values {
+            let id = Bundle(url: button.launcher.url)?.bundleIdentifier ?? ""
+            button.updateAttention(
+                mode == .off ? nil : attention.badges[id],
+                pulsing: mode == .badgesAndPulse && attention.isPulsing(id, now: now))
+        }
+    }
+
     override func layout() {
         super.layout()
-        let launcherWidth = min(CGFloat(launchers.count) * 38, min(220, bounds.width * 0.25))
-        let left: CGFloat = preferences.searchEnabled ? 46 : 12
+        let shelf = ShelfLayout(
+            width: bounds.width, pinnedCount: launchers.count,
+            searchEnabled: preferences.searchEnabled, side: preferences.pinnedSide)
+        let launcherWidth = shelf.launcherWidth
+        let left = shelf.windowX
         searchButton.frame = NSRect(x: 12, y: bounds.height / 2 - 16, width: 26, height: 32)
         let middle = bounds.height / 2
-        let launcherX = bounds.width - 54 - launcherWidth
+        let launcherX = shelf.launcherX
         launchScroll.frame = NSRect(x: launcherX, y: middle - 18, width: launcherWidth, height: 36)
         divider.isHidden = launchers.isEmpty
-        divider.frame = NSRect(x: launcherX - 10, y: 16, width: 1, height: bounds.height - 32)
+        divider.frame = NSRect(x: shelf.dividerX, y: 16, width: 1, height: bounds.height - 32)
         launchDocument.frame = NSRect(x: 0, y: 0, width: CGFloat(launchers.count) * 38, height: 36)
         for (index, launcher) in launchers.enumerated() {
             launcherButtons[launcher.url.path]?.frame = NSRect(
@@ -169,7 +195,7 @@ final class BarView: NSVisualEffectView {
         menuButton.frame = NSRect(x: bounds.width - 42, y: middle - 16, width: 28, height: 32)
         scroll.frame = NSRect(
             x: left, y: 7,
-            width: max(0, bounds.width - left - 60 - launcherWidth - (launchers.isEmpty ? 0 : 12)),
+            width: shelf.windowWidth,
             height: bounds.height - 14)
         let geometry = BarLayout(availableWidth: Double(scroll.bounds.width), focused: displayFocus)
         let oldX = scroll.contentView.bounds.minX

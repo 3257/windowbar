@@ -7,6 +7,7 @@ WindowBar uses Swift Package Manager, AppKit, and public macOS Accessibility API
 | Component | Responsibility |
 | --- | --- |
 | `WindowBarCore` | Pure layout calculations, scan generations, command parsing, typed Dock backups, Chrome profile metadata decoding |
+| `SettingsProcessController` / `SettingsHelperDelegate` | Separate Settings event loop, preference change/acknowledgement, rejection rollback and owned-helper shutdown |
 | `AppDelegate` | Compose dependencies, coordinate scans, lifecycle, settings, and display panels |
 | `AccessibilityWindowService` | Discover app windows on one serial background queue; preserve the last app snapshot on transient timeouts |
 | `WindowActions` | Activate, restore, minimize, and close windows; cancel obsolete delayed activation |
@@ -19,6 +20,10 @@ WindowBar uses Swift Package Manager, AppKit, and public macOS Accessibility API
 | `LoginItemService` / `ApplicationInstaller` | Register the installed main app at login, verify/stage installation, protect running copies |
 | `GlobalShortcuts` / `HotKeyBackend` | Validate, register, route and roll back configurable hotkeys |
 | `WindowPreviews` / `WindowCaptureBackend` | Permission-gated single-window thumbnails with one bounded memory cache |
+| `WindowPeekController` / `PeekLayout` / `WindowRecency` | One-second dwell, bounded full-window overlay, dismissal/commit generations, display fitting and recent app-window selection |
+| `DockBadgeReader` / `AppAttention` | Bounded Dock Accessibility badge reads and new/increased unread pulse state |
+| `TerminalMenuDefaults` | Retained Terminal profile menu alongside the home-folder launcher |
+| `ShelfLayout` | Left/right pin geometry with a shared one-row window area |
 | `HoverPreviewController` | Intent delay, nonactivating action cards, pointer bridge, and generation cancellation of stale captures/actions |
 | `WindowSearch` / `WindowSwitcherController` | Pure text matching and native keyboard/result selection |
 | `WindowGrouping` / `WindowGroupButton` | Stable app/profile groups with per-bar collapsed state |
@@ -31,7 +36,7 @@ The application depends on small `WindowDiscovering`, `WindowActing`, `DockRepla
 
 ## State and ownership
 
-- The main thread owns AppKit views and application state. Window discovery owns its cache on one serial queue.
+- The taskbar main thread owns its AppKit views and application state. Settings has its own process/event loop and singleton lock; opening its tabs cannot synchronously execute AppKit rendering or file dialogs in the bar. Preferences use synchronized UserDefaults plus payload-free distributed notifications; the bar validates hotkeys before accepting, rolls back on failure and notifies Settings. A waiting-helper regression check exercises row layout/selection while the helper is deliberately stalled. Window discovery owns its cache on one serial queue.
 - Every selection or permission change invalidates earlier scans. A stale result cannot replace the current selection or repopulate windows after permission is revoked.
 - A generation check cancels delayed activation after a newer selection. An app that has lost focus is not raised again by an old callback.
 - A kernel file lock prevents duplicate WindowBar instances. Its descriptor is close-on-exec, so the crash guard cannot keep the GUI instance lock alive.
@@ -43,6 +48,10 @@ The application depends on small `WindowDiscovering`, `WindowActing`, `DockRepla
 - Search reads the existing window snapshot; no second scanner or saved search/title data is introduced. Result refresh preserves valid selection and removes closed windows. The search panel intentionally takes keyboard focus only when opened by the user.
 - Group identity uses the app bundle identifier (fallback app name) and profile directory, keeping separate Chrome instances in the same app group. Unknown profiles stay reachable; repeated display names do not merge distinct directories. Group headers never manipulate windows; selection expands a collapsed group.
 - Auto-hide policy receives pointer/interaction/time input. A timer runs only while auto-hide is enabled and the bar is shown, using read-only pointer polling instead of global event interception. Every display owns its state/frame; hidden panels shrink to a nonintercepting strip inside that screen rather than spilling onto a display below. Transition generations cancel obsolete fade completions. Explicit manual hide still restores Dock settings; automatic hide keeps the existing Dock lifecycle untouched.
+- Full-window peeks are nonactivating image panels below the taskbar and its cards. No real window is raised, minimized, reordered, or activated until an explicit selection. Capture starts only after one second, uses existing Screen Recording permission, and remains bounded at 2560×1600 pixels. Generations discard late captures and stale clicks after leaving, dismissal, drag, menus, settings, app activation, or window closure. A passive event monitor dismisses peeks on external input without recording event contents or posting input. Minimized/unavailable windows fall back without mutation.
+- Pin placement defaults right and persists independently of app order. Launcher window discovery includes every running app instance, and recent-window history is session-only and updated by actual focus/explicit selection.
+- Notification attention uses only Dock-exposed app URLs and normalized badge labels (counts/known symbols). No Notification Center database, Slack message data, or notification payloads are accessed. Read traversal has node/depth/time bounds on the scanner queue. Pulse state compares unread values, ignores the initial baseline, stops on focus/decrease/clear/timeout, and honors Reduce Motion. App/Dock Accessibility differences can make badge data unavailable.
+- `TerminalWindowLauncher` sends the user's home folder explicitly to the Terminal application URL through NSWorkspace. It does not use the folder's default handler, type a command into an existing tab, change Terminal preferences, or require AppleScript automation. The native New Window profile choices remain in a separate submenu, and New Tab keeps its native action.
 - Hover action callbacks use the same window-action services as the row. Generation checks prevent old buttons from acting on a later card. Leaving the source button allows traversal to the interactive card; the pointer monitor dismisses it after departure.
 - Shortcuts are inactive by default. OS registration failure rolls back previous bindings. Settings cannot register login startup before the app is installed.
 - Logs use a separate nonblocking file lock and rotate at approximately 512 KiB. Logging failures do not prevent shutdown or Dock restoration. Events omit content titles, account/profile names, URLs and images.
@@ -66,3 +75,11 @@ Unit tests run in CI without changing desktop preferences. GUI smoke tests are l
 Documentation rendering uses fixed sample launchers and profiles. Menu snapshots render NSMenu item state with native labels/separators without opening a popup. The selected Quiet Shelf design uses system appearance, a subtle accent, trailing pins and no leading brand mark; the design exploration is in `docs/design`.
 
 Swift language mode is 5 for compatibility with the supported toolchain. A future Swift 6 migration should introduce explicit actor boundaries for AppKit and audited sendability of Accessibility snapshots; it should not add unchecked sendability merely to silence compiler errors.
+
+## Recovery investigation, 2026-10-15
+
+The 0.3.0 freeze sample showed the bar main thread waiting for Core Animation while its render worker was blocked in a filesystem open during graphics-resource initialization. A separate offscreen check stopped in a CoreUI resource open, and unrelated Git, Finder and the relaunched native Dock were also observed in uninterruptible file reads. These observations establish a broader OS-level I/O stall; they do not establish its underlying cause.
+
+The incident recovery archived the original Dock snapshot and exiting-process lock after verifying the old WindowBar had entered kernel `P_WEXIT`. The original Dock preferences were restored. A separate recovery bar was verified visible on the laptop, with no active Dock replacement backup. The native Dock/Finder and wallpaper remained affected by the OS stall. No WindowServer restart or logout was performed.
+
+Settings is now isolated from the bar, Dock replacement defaults off, and the build guard uses a bounded process snapshot instead of scanning every process's open files through `lsof`. Offscreen UI checks use undecorated windows and render all Settings tabs, including Diagnostics; production Settings keeps its native window decoration. These app changes limit failure propagation; they do not claim to repair an uninterruptible macOS filesystem wait.

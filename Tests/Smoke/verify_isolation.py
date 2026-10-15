@@ -27,7 +27,7 @@ def preferences():
 binary = Path(sys.argv[1]) if len(sys.argv) == 2 else ROOT / "build/candidate/WindowBar.app/Contents/MacOS/WindowBar"
 original_backup = backup()
 original_preferences = preferences()
-pid = plistlib.loads(original_backup)["pid"] if original_backup else None
+pid = int(os.environ['WINDOWBAR_LIVE_PID']) if os.environ.get('WINDOWBAR_LIVE_PID') else (plistlib.loads(original_backup)['pid'] if original_backup else None)
 try:
     subprocess.run([str(binary), "--self-test"], check=True, timeout=30)
 finally:
@@ -35,4 +35,4 @@ finally:
     assert preferences() == original_preferences, "Candidate changed Dock preferences."
     if pid:
         os.kill(pid, 0)
-print("PASS: candidate tests preserved the live taskbar PID, Dock backup, and Dock preferences")
+print('PASS: candidate tests preserved Dock backup and preferences' + (' and the live taskbar PID' if pid else ' (no live PID supplied)'))

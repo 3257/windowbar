@@ -3,6 +3,10 @@ import XCTest
 @testable import WindowBarCore
 
 final class AppCommandTests: XCTestCase {
+    func testSettingsHelperHasAnExplicitIsolatedCommand() throws {
+        XCTAssertEqual(try AppCommand.parse(["--settings"]), .settings)
+        XCTAssertThrowsError(try AppCommand.parse(["--settings", "extra"]))
+    }
     func testIsolatedChecksAndExplicitInstallationCommands() throws {
         XCTAssertEqual(try AppCommand.parse(["--self-test"]), .selfTest)
         XCTAssertEqual(try AppCommand.parse(["--install"]), .install)

@@ -6,7 +6,7 @@ enum WindowToolsVerification {
     static func run(features: FeatureCoordinator, directory: URL) throws {
         let require = FeatureVerification.require
         let entries = sampleWindows()
-        let switcher = WindowSwitcherController()
+        let switcher = WindowSwitcherController(decorateWindow: false)
         defer { switcher.close() }
         var preferences = BarPreferences()
         switcher.update(entries: entries, preferences: preferences)
@@ -187,7 +187,7 @@ enum WindowToolsVerification {
         let settings = SettingsWindowController(
             features: features,
             startup: LoginItemService(backend: FeatureVerification.LoginBackend(), installed: { true }),
-            logDirectory: directory)
+            logDirectory: directory, decorateWindow: false)
         defer { settings.close() }
         settings.searchToggle.state = .off
         settings.minimizedToggle.state = .off

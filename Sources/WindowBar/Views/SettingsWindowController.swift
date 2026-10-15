@@ -3,12 +3,15 @@ import ApplicationServices
 import ServiceManagement
 import WindowBarCore
 
-final class SettingsWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class SettingsWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate,
+    NSWindowDelegate
+{
     let features: FeatureCoordinator
     let startup: LoginItemService
     let installer: ApplicationInstaller
     var onPreferencesChanged: ((BarPreferences) throws -> Void)?
     var onError: ((Error) -> Void)?
+    var onClose: (() -> Void)?
     let tabs = NSTabView()
     let startupToggle = NSButton(checkboxWithTitle: "Start at login", target: nil, action: nil)
     let startupStatus = NSTextField(wrappingLabelWithString: "")
@@ -27,6 +30,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         checkboxWithTitle: "Auto-hide at the bottom screen edge", target: nil, action: nil)
     let hideDelay = NSSlider(value: 0.8, minValue: 0.2, maxValue: 3, target: nil, action: nil)
     let hideDelayLabel = NSTextField(labelWithString: "")
+    let notificationMode = NSPopUpButton()
+    let pinnedSide = NSPopUpButton()
+    let peekToggle = NSButton(
+        checkboxWithTitle: "Peek at windows after hovering for one second", target: nil, action: nil)
     let pinnedTable = NSTableView()
     let errorLabel = NSTextField(wrappingLabelWithString: "")
     private let shortcutRows = NSStackView()
@@ -38,7 +45,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     init(
         features: FeatureCoordinator, startup: LoginItemService = LoginItemService(),
         installer: ApplicationInstaller = ApplicationInstaller(),
-        logDirectory: URL = Diagnostics.shared.directory
+        logDirectory: URL = Diagnostics.shared.directory, decorateWindow: Bool = true
     ) {
         self.features = features
         self.startup = startup
@@ -46,11 +53,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         self.logDirectory = logDirectory
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 620, height: 540),
-            styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            styleMask: decorateWindow ? [.titled, .closable, .miniaturizable] : [.borderless],
+            backing: .buffered, defer: false)
         window.title = "WindowBar Settings"
         window.isReleasedWhenClosed = false
         window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 540))
         super.init(window: window)
+        window.delegate = self
         tabs.frame = NSRect(x: 20, y: 64, width: 580, height: 456)
         tabs.autoresizingMask = [.width, .height]
         window.contentView?.addSubview(tabs)
@@ -73,6 +82,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         window?.center()
         showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) { onClose?() }
+
+    func showExternalError(_ message: String) {
+        refresh()
+        errorLabel.stringValue = message
     }
 
     private func page(_ title: String) -> NSView {
@@ -140,7 +156,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         let view = page("Behavior")
         for (button, y) in [
             (searchToggle, 366.0), (minimizedToggle, 332.0),
-            (hoverActionsToggle, 226.0), (autoHideToggle, 166.0),
+            (hoverActionsToggle, 226.0), (peekToggle, 194.0), (autoHideToggle, 158.0),
         ] {
             button.frame = NSRect(x: 20, y: y, width: 520, height: 26)
             button.target = self
@@ -160,15 +176,25 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         view.addSubview(hideDelay)
         hideDelayLabel.frame = NSRect(x: 438, y: 126, width: 90, height: 24)
         view.addSubview(hideDelayLabel)
-        label(
-            "Click a group header to collapse or expand it. Search and keyboard switching still reach every window. Move to the bottom edge to reveal an auto-hidden bar; menus and previews keep it open.",
-            y: 36, in: view
-        ).frame.size.height = 70
+        label("Unread activity", y: 60, in: view)
+        notificationMode.addItems(withTitles: ["Badges + brief pulse", "Badges only", "Off"])
+        notificationMode.frame = NSRect(x: 220, y: 76, width: 310, height: 28)
+        notificationMode.target = self
+        notificationMode.action = #selector(changeBehavior)
+        view.addSubview(notificationMode)
+        label("Mirrors app Dock badges when available. Reduce Motion uses a steady badge.", y: 12, in: view)
+            .textColor = .secondaryLabelColor
     }
 
     private func pinnedPage() {
         let view = page("Pinned Apps")
-        let scroll = NSScrollView(frame: NSRect(x: 20, y: 78, width: 520, height: 312))
+        label("Pinned apps position", y: 348, in: view)
+        pinnedSide.addItems(withTitles: ["Right (default)", "Left"])
+        pinnedSide.frame = NSRect(x: 270, y: 364, width: 260, height: 28)
+        pinnedSide.target = self
+        pinnedSide.action = #selector(changePinnedSide)
+        view.addSubview(pinnedSide)
+        let scroll = NSScrollView(frame: NSRect(x: 20, y: 78, width: 520, height: 270))
         scroll.hasVerticalScroller = true
         scroll.borderType = .bezelBorder
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("app"))
@@ -228,6 +254,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     func refresh() {
         let value = features.preferences.value
+        pinnedSide.selectItem(at: value.pinnedSide == .right ? 0 : 1)
+        peekToggle.state = value.hoverPeekEnabled ? .on : .off
+        notificationMode.selectItem(
+            at: BarPreferences.NotificationMode.allCases.firstIndex(of: value.notificationMode) ?? 0)
         scope.selectItem(at: value.windowScope == .allDisplays ? 0 : 1)
         preview.selectItem(at: value.previewMode == .titles ? 0 : 1)
         shortcutsToggle.state = value.shortcutsEnabled ? .on : .off
@@ -257,8 +287,8 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         loginSettings.isEnabled = startup.status == .requiresApproval || startup.status == .enabled
         permissionLabel.stringValue =
             CGPreflightScreenCaptureAccess()
-            ? "Thumbnail access is available. Minimized or unavailable windows use title previews."
-            : "Thumbnails need Screen Recording access. Title previews work without it. Enable access only when you want thumbnails."
+            ? "Thumbnail and full-window peek access is available. Minimized or unavailable windows use title previews."
+            : "Thumbnails and full-window peeks need Screen Recording access. Title previews work without it. Access is requested only with the button below."
         diagnosticsLabel.stringValue =
             "WindowBar \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development")\n\nAccessibility: \(AXIsProcessTrusted() ? "Available" : "Not granted")\nThumbnail access: \(CGPreflightScreenCaptureAccess() ? "Available" : "Not granted")\n\nLog folder:\n\(logDirectory.path)\n\nAn unexpected exit is recorded on the next launch. Logs rotate automatically."
         pinnedTable.reloadData()
@@ -325,6 +355,9 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
 
     @objc func changeBehavior() {
         var value = features.preferences.value
+        value.hoverPeekEnabled = peekToggle.state == .on
+        value.notificationMode =
+            BarPreferences.NotificationMode.allCases[max(0, notificationMode.indexOfSelectedItem)]
         value.searchEnabled = searchToggle.state == .on
         value.searchIncludesMinimized = minimizedToggle.state == .on
         value.groupingMode = BarPreferences.GroupingMode.allCases[max(0, grouping.indexOfSelectedItem)]
@@ -337,6 +370,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         } catch { failed(error) }
     }
 
+    @objc func changePinnedSide() {
+        var value = features.preferences.value
+        value.pinnedSide = pinnedSide.indexOfSelectedItem == 1 ? .left : .right
+        do { try save(value) } catch { failed(error) }
+    }
     @objc func changeScope() {
         var value = features.preferences.value
         value.windowScope = scope.indexOfSelectedItem == 0 ? .allDisplays : .currentDisplay

@@ -19,7 +19,7 @@ struct WindowEntry {
             id: id, appKey: appIdentity, appName: appName,
             profileKey: profile?.directory, profileName: profile?.name)
     }
-    private var appIdentity: String {
+    var appIdentity: String {
         NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? appName
     }
 }

@@ -13,10 +13,11 @@ final class WindowSwitcherController: NSWindowController, NSSearchFieldDelegate,
     var onSelect: ((WindowEntry) -> Void)?
     var onCancel: (() -> Void)?
 
-    init() {
+    init(decorateWindow: Bool = true) {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 420),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            styleMask: decorateWindow ? [.titled, .closable] : [.borderless], backing: .buffered, defer: false
+        )
         window.title = "Search Windows"
         window.isReleasedWhenClosed = false
         window.level = .floating
