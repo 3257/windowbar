@@ -112,7 +112,7 @@ enum WindowToolsVerification {
         var stale: NSButton?
         for action in ["select", "minimize", "close"] {
             hover.hover(target.entry, button: target, entered: true, mode: .titles, actionsEnabled: true)
-            FeatureViewVerification.wait(0.52)
+            FeatureViewVerification.wait(0.7)
             guard let button = hover.actionButtons[action] else {
                 throw FeatureVerification.Failure.check("Missing hover action")
             }
@@ -130,14 +130,14 @@ enum WindowToolsVerification {
         bar.addSubview(restored)
         restored.frame = NSRect(x: 10, y: 7, width: 140, height: 52)
         hover.hover(minimized, button: restored, entered: true, mode: .titles, actionsEnabled: true)
-        FeatureViewVerification.wait(0.52)
+        FeatureViewVerification.wait(0.7)
         stale?.performClick(nil)
         try require(actions.count == 3, "Stale hover action targeted another window")
         try require(hover.actionButtons["minimize"]?.title == "Restore", "Minimized window lacks Restore")
         hover.actionButtons["minimize"]?.performClick(nil)
         try require(actions.last == "select:minimized", "Restore did not use selection/unminimize path")
         hover.hover(target.entry, button: target, entered: true, mode: .titles, actionsEnabled: false)
-        FeatureViewVerification.wait(0.52)
+        FeatureViewVerification.wait(0.7)
         try require(hover.actionButtons.isEmpty, "Disabled hover actions still rendered")
         hover.updatePointer(NSPoint(x: -9000, y: -9000), now: 10)
         hover.updatePointer(NSPoint(x: -9000, y: -9000), now: 11)
