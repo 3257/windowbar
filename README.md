@@ -6,7 +6,7 @@ A native macOS taskbar with one button per open window. Find and switch windows 
 
 ## Install
 
-Download `WindowBar.app.zip` from the latest successful [Build and test run](https://github.com/SimeonLGeorgiev/windowbar/actions/workflows/ci.yml) on `main`. The package contains one universal app for Apple silicon and Intel, so you do not need Xcode or Swift. CI keeps each download for 30 days.
+Download the [WindowBar.app.zip](https://github.com/SimeonLGeorgiev/windowbar/raw/refs/heads/main/downloads/WindowBar.app.zip) app bundle. It supports Apple silicon and Intel, so you do not need Xcode or Swift to install it.
 
 Unzip the download, move `WindowBar.app` to **Applications**, and open it. If macOS warns that it cannot verify the developer, Control-click the app, choose **Open**, then confirm. This build is ad-hoc signed and is not notarized.
 
