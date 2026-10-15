@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var scanning = false
     private var entries: [WindowEntry] = []
     private let scanner = DispatchQueue(label: "windowbar.accessibility", qos: .utility)
+    private let workAreas = WindowWorkAreaController()
+    private var zoomMonitor: Any?
     private var allDisplays = UserDefaults.standard.bool(forKey: "allDisplays")
     private var hidden = false
     private let demo: Bool
@@ -103,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         previews.onMinimize = { [weak self] in self?.minimize($0) }
         previews.onClose = { [weak self] in self?.closeWindow($0) }
         rebuildPanels()
+        configureZoomMonitor()
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(preferencesChanged), name: .windowBarPreferencesChanged, object: nil)
         configureAutoHideTimer()
@@ -130,6 +133,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsProcess.stop()
         switcher?.dismiss()
         cancelHover()
+        if let zoomMonitor { NSEvent.removeMonitor(zoomMonitor) }
+        zoomMonitor = nil
+        scanner.sync { workAreas.restoreAll() }
         for source in terminationSignals { source.cancel() }
         if !demo { diagnostics.record(.shutdownRequested) }
         let restored = dock.restore()
@@ -325,6 +331,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 preferences: displayedPreferences)
             bar.updateAttention(attention, mode: features.preferences.value.notificationMode)
         }
+        updateReservedWindowSpace()
+    }
+
+    private func updateReservedWindowSpace() {
+        guard !demo && !recoveryMode else { return }
+        let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
+        let reservesSpace = !hidden && !features.preferences.value.autoHideEnabled && AXIsProcessTrusted()
+        let areas =
+            reservesSpace
+            ? screens.map {
+                ReservedWindowArea(
+                    displayID: displayID($0), visibleFrame: $0.visibleFrame, barFrame: barFrame(for: $0))
+            } : []
+        let windows = entries
+        let mouseDown = NSEvent.pressedMouseButtons != 0
+        scanner.async { [workAreas] in
+            workAreas.update(entries: windows, areas: areas, mouseDown: mouseDown)
+        }
+    }
+
+    private func configureZoomMonitor() {
+        guard !demo && !recoveryMode else { return }
+        zoomMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            guard let self, event.clickCount == 2, !self.hidden,
+                !self.features.preferences.value.autoHideEnabled,
+                let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            else { return }
+            let windows = self.entries.filter { $0.pid == pid }
+            let pointer = NSEvent.mouseLocation
+            let now = ProcessInfo.processInfo.systemUptime
+            self.scanner.async { [workAreas = self.workAreas] in
+                guard
+                    let focused = Accessibility.element(
+                        attribute(AXUIElementCreateApplication(pid), kAXFocusedWindowAttribute)),
+                    let entry = windows.first(where: { $0.element.map { CFEqual($0, focused) } == true })
+                else { return }
+                workAreas.requestRestore(id: entry.id, pointer: pointer, now: now)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.refresh() }
+        }
     }
 
     private func select(_ entry: WindowEntry) {
@@ -422,6 +468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = dock.enable()
         }
         for panel in panels { if hidden { panel.orderOut(nil) } else { panel.orderFrontRegardless() } }
+        updateReservedWindowSpace()
         statusItem?.menu = makeMenu()
     }
 

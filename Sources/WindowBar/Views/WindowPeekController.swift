@@ -87,7 +87,7 @@ final class WindowPeekController {
             hide()
             return
         }
-        guard let pending, let enteredAt, now - enteredAt >= 1 else { return }
+        guard let pending, let enteredAt, now - enteredAt >= 0.6 else { return }
         self.pending = nil
         capturingID = pending.id
         let captured = generation.value
