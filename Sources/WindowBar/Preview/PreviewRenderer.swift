@@ -115,6 +115,13 @@ enum PreviewRenderer {
         grouped.blendingMode = .withinWindow
         grouped.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
         try writeView(grouped, to: directory.appendingPathComponent("grouping.png"))
+        var tinted = BarPreferences()
+        tinted.barTint = .strong
+        grouped.update(
+            entries: sampleWindows(), trusted: true, launchers: sampleLaunchers(), preferences: tinted)
+        grouped.layoutSubtreeIfNeeded()
+        try writeView(grouped, to: directory.appendingPathComponent("bar-tint.png"))
+        try sideColumns(in: directory)
         if let button = FeatureViewVerification.descendants(grouped).compactMap({ $0 as? WindowButton })
             .first(where: { !$0.entry.focused })
         {
@@ -127,6 +134,28 @@ enum PreviewRenderer {
                 try writeView(view, to: directory.appendingPathComponent("hover-actions.png"))
             }
             hover.hide()
+        }
+    }
+
+    private static func sideColumns(in directory: URL) throws {
+        for (name, collapsed) in [("side-dock", false), ("side-dock-collapsed", true)] {
+            var side = BarPreferences()
+            side.barEdge = .right
+            side.sideCollapsed = collapsed
+            let width = CGFloat(collapsed ? ColumnLayout.collapsedWidth : ColumnLayout.width)
+            let panel = TaskbarPanel(
+                contentRect: NSRect(x: 0, y: 0, width: width, height: 760),
+                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            panel.isReleasedWhenClosed = false
+            defer { panel.close() }
+            let column = BarView(frame: NSRect(origin: .zero, size: panel.frame.size))
+            panel.contentView = column
+            column.update(
+                entries: sampleWindows(), trusted: true, launchers: sampleLaunchers(), preferences: side)
+            column.layoutSubtreeIfNeeded()
+            column.blendingMode = .withinWindow
+            column.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            try writeView(column, to: directory.appendingPathComponent("\(name).png"))
         }
     }
 
