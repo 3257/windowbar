@@ -122,6 +122,7 @@ enum PreviewRenderer {
         grouped.layoutSubtreeIfNeeded()
         try writeView(grouped, to: directory.appendingPathComponent("bar-tint.png"))
         try sideColumns(in: directory)
+        try edgeLines(in: directory)
         if let button = FeatureViewVerification.descendants(grouped).compactMap({ $0 as? WindowButton })
             .first(where: { !$0.entry.focused })
         {
@@ -156,6 +157,19 @@ enum PreviewRenderer {
             column.blendingMode = .withinWindow
             column.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
             try writeView(column, to: directory.appendingPathComponent("\(name).png"))
+        }
+    }
+
+    /// The auto-hidden bar's line along the bottom of a dark stand-in desktop, in both states.
+    private static func edgeLines(in directory: URL) throws {
+        let scene = NSView(frame: NSRect(x: 0, y: 0, width: 1320, height: 48))
+        scene.wantsLayer = true
+        scene.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+        let strip = EdgeStripView(frame: NSRect(x: 0, y: 0, width: scene.frame.width, height: 6))
+        scene.addSubview(strip)
+        for (name, alerting) in [("edge-line", false), ("edge-line-alert", true)] {
+            strip.alerting = alerting
+            try writeView(scene, to: directory.appendingPathComponent("\(name).png"))
         }
     }
 

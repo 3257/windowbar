@@ -122,7 +122,7 @@ final class BarAutoHideController {
 }
 
 /// The accent color keeps the hidden bar's edge visible on any wallpaper.
-private final class EdgeStripView: NSView {
+final class EdgeStripView: NSView {
     var alerting = false {
         didSet { if oldValue != alerting { needsDisplay = true } }
     }
