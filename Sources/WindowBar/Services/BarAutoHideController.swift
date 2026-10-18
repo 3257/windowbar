@@ -9,19 +9,34 @@ final class BarAutoHideController {
     private(set) var shownFrame: NSRect = .zero
     private(set) var edgeFrame: NSRect = .zero
     var hidden: Bool { state.hidden }
+    var lineWidth: CGFloat = 6
+    private var strip: EdgeStripView?
+    /// Badges as they were when the bar hid; anything newer turns the edge line red.
+    private var baseline: [String: UnreadBadge] = [:]
+    private var alerting = false
+
+    func updateUnread(_ badges: [String: UnreadBadge], alerts: Bool) {
+        if !state.hidden { baseline = badges }
+        alerting = alerts && AppAttention.hasNews(since: baseline, now: badges)
+        strip?.alerting = alerting
+    }
 
     func layout(
-        shownFrame: NSRect, screenFrame: NSRect, edge barEdge: BarPreferences.BarEdge = .bottom, panel: NSPanel,
-        animated: Bool = false
+        shownFrame: NSRect, screenFrame: NSRect, edge barEdge: BarPreferences.BarEdge = .bottom,
+        panel: NSPanel, animated: Bool = false
     ) {
         let edge: NSRect
         switch barEdge {
         case .bottom:
-            edge = NSRect(x: shownFrame.minX, y: screenFrame.minY, width: shownFrame.width, height: 4)
+            edge = NSRect(
+                x: screenFrame.minX, y: screenFrame.minY, width: screenFrame.width, height: lineWidth)
         case .left:
-            edge = NSRect(x: screenFrame.minX, y: shownFrame.minY, width: 4, height: shownFrame.height)
+            edge = NSRect(
+                x: screenFrame.minX, y: shownFrame.minY, width: lineWidth, height: shownFrame.height)
         case .right:
-            edge = NSRect(x: screenFrame.maxX - 4, y: shownFrame.minY, width: 4, height: shownFrame.height)
+            edge = NSRect(
+                x: screenFrame.maxX - lineWidth, y: shownFrame.minY, width: lineWidth,
+                height: shownFrame.height)
         }
         guard self.shownFrame != shownFrame || edgeFrame != edge else { return }
         if content == nil { content = panel.contentView }
@@ -78,6 +93,7 @@ final class BarAutoHideController {
             // Resize before re-attaching, so the bar never lays out at strip width.
             panel.setFrame(shownFrame, display: false)
             panel.contentView = content
+            strip = nil
             content?.layoutSubtreeIfNeeded()
             panel.ignoresMouseEvents = false
             panel.hasShadow = true
@@ -94,15 +110,25 @@ final class BarAutoHideController {
 
     private func installStrip(_ panel: NSPanel) {
         // Stay inside this screen, including vertically stacked display arrangements.
-        let strip = NSVisualEffectView(frame: NSRect(origin: .zero, size: edgeFrame.size))
-        strip.material = .popover
-        strip.state = .active
-        strip.wantsLayer = true
-        strip.layer?.cornerRadius = 2
+        let strip = EdgeStripView(frame: NSRect(origin: .zero, size: edgeFrame.size))
+        strip.alerting = alerting
+        self.strip = strip
         panel.contentView = strip
         panel.ignoresMouseEvents = true
         panel.hasShadow = false
         panel.setFrame(edgeFrame, display: false)
         panel.alphaValue = 1
+    }
+}
+
+/// The accent color keeps the hidden bar's edge visible on any wallpaper.
+private final class EdgeStripView: NSView {
+    var alerting = false {
+        didSet { if oldValue != alerting { needsDisplay = true } }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        (alerting ? NSColor.systemRed : NSColor.controlAccentColor).withAlphaComponent(0.85).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 2, yRadius: 2).fill()
     }
 }

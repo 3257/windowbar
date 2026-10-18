@@ -8,11 +8,17 @@ final class PinsPeekAttentionTests: XCTestCase {
         var preferences = try JSONDecoder().decode(BarPreferences.self, from: Data("{}".utf8))
         XCTAssertEqual(preferences.pinnedSide, .left)
         XCTAssertEqual(preferences.barEdge, .bottom)
+        XCTAssertEqual(preferences.barTint, .off)
+        XCTAssertEqual(preferences.edgeLineWidth, 6)
+        XCTAssertTrue(preferences.edgeLineAlertsUnread)
         XCTAssertTrue(preferences.hoverPeekEnabled)
         XCTAssertEqual(preferences.notificationMode, .badgesAndPulse)
         preferences.pinnedSide = .right
         preferences.barEdge = .right
         preferences.sideCollapsed = true
+        preferences.barTint = .strong
+        preferences.edgeLineWidth = 8
+        preferences.edgeLineAlertsUnread = false
         preferences.hoverPeekEnabled = false
         preferences.notificationMode = .off
         XCTAssertEqual(
@@ -127,5 +133,18 @@ final class PinsPeekAttentionTests: XCTestCase {
         XCTAssertFalse(attention.isPulsing("slack", now: 3))
         attention.update([:], focusedApp: nil, now: 4)
         XCTAssertNil(attention.badges["slack"])
+    }
+
+    func testEdgeLineWidthIsValidatedAndNewsComparesAgainstBaseline() throws {
+        let odd = try JSONDecoder().decode(BarPreferences.self, from: Data(#"{"edgeLineWidth": 40}"#.utf8))
+        XCTAssertEqual(odd.edgeLineWidth, 6)
+        var invalid = BarPreferences()
+        invalid.edgeLineWidth = 5
+        XCTAssertThrowsError(try invalid.validate())
+        let baseline: [String: UnreadBadge] = ["slack": .count(34)]
+        XCTAssertFalse(AppAttention.hasNews(since: baseline, now: ["slack": .count(34)]))
+        XCTAssertFalse(AppAttention.hasNews(since: baseline, now: ["slack": .count(30)]))
+        XCTAssertTrue(AppAttention.hasNews(since: baseline, now: ["slack": .count(35)]))
+        XCTAssertTrue(AppAttention.hasNews(since: baseline, now: ["slack": .count(34), "window:1": .alert]))
     }
 }

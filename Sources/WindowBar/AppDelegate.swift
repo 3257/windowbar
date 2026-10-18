@@ -262,16 +262,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         render()
     }
 
+    /// An auto-hidden bar spans its screen edge and covers the Dock while shown instead of avoiding it.
+    private var coversDock: Bool {
+        features.preferences.value.autoHideEnabled && !demo && !recoveryMode
+    }
+
     private func barFrame(for screen: NSScreen) -> NSRect {
         let visible = screen.visibleFrame
-        let bottom = dock.isEnabled && !demo ? screen.frame.minY : visible.minY
+        let bottom = (dock.isEnabled || coversDock) && !demo ? screen.frame.minY : visible.minY
         let edge = features.preferences.value.barEdge
         guard edge != .bottom else {
+            guard !coversDock else {
+                // Span the screen and align the top edge with the Dock's, so no part of the Dock shows.
+                return NSRect(
+                    x: visible.minX, y: max(bottom + 8, visible.minY - BarLayout.height),
+                    width: visible.width, height: BarLayout.height)
+            }
             let width = max(200, visible.width - 24)
             return NSRect(x: visible.minX + 12, y: bottom + 8, width: width, height: BarLayout.height)
         }
         let width = CGFloat(
             features.preferences.value.sideCollapsed ? ColumnLayout.collapsedWidth : ColumnLayout.width)
+        guard !coversDock else {
+            let originX = edge == .left ? screen.frame.minX : screen.frame.maxX - width
+            return NSRect(x: originX, y: bottom, width: width, height: visible.maxY - bottom)
+        }
         let originX = edge == .left ? visible.minX + 8 : visible.maxX - width - 8
         return NSRect(x: originX, y: bottom + 8, width: width, height: max(200, visible.maxY - bottom - 16))
     }
@@ -340,9 +355,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let trusted = demo || AXIsProcessTrusted()
         let screens = allDisplays ? NSScreen.screens : Array(NSScreen.screens.prefix(1))
         for (index, screen) in screens.enumerated() where panels.indices.contains(index) {
+            let value = features.preferences.value
+            autoHideControllers[index].lineWidth = CGFloat(value.edgeLineWidth)
+            autoHideControllers[index].updateUnread(
+                value.notificationMode == .off ? [:] : attention.badges, alerts: value.edgeLineAlertsUnread)
+            panels[index].level =
+                coversDock ? NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) + 1) : .floating
             autoHideControllers[index].layout(
-                shownFrame: barFrame(for: screen), screenFrame: screen.frame,
-                edge: features.preferences.value.barEdge, panel: panels[index])
+                shownFrame: barFrame(for: screen), screenFrame: screen.frame, edge: value.barEdge,
+                panel: panels[index])
         }
         switcher?.update(entries: entries, preferences: features.preferences.value)
         updateAutoHide()
@@ -493,7 +514,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if action == #selector(toggleDisplays) { item.state = allDisplays ? .on : .off }
             if action == #selector(toggleDock) { item.state = replacesDock ? .on : .off }
             menu.addItem(item)
-            if action == #selector(toggleDisplays) { menu.addItem(barPositionItem()) }
+            if action == #selector(toggleDisplays) {
+                menu.addItem(barPositionItem())
+                menu.addItem(appearanceItem())
+            }
         }
         return menu
     }
@@ -717,12 +741,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
+    private func appearanceItem() -> NSMenuItem {
+        let value = features.preferences.value
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
+        func option(_ title: String, _ action: Selector, _ object: Any, selected: Bool) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.representedObject = object
+            item.state = selected ? .on : .off
+            submenu.addItem(item)
+        }
+        submenu.addItem(.sectionHeader(title: "Bar tint"))
+        for (tint, title) in [(BarPreferences.BarTint.off, "Off"), (.light, "Light"), (.strong, "Strong")] {
+            option(title, #selector(changeBarTint(_:)), tint.rawValue, selected: tint == value.barTint)
+        }
+        submenu.addItem(.separator())
+        submenu.addItem(.sectionHeader(title: "Edge line width"))
+        for width in BarPreferences.edgeLineWidths {
+            option(
+                "\(Int(width)) pt", #selector(changeEdgeLineWidth(_:)), NSNumber(value: width),
+                selected: width == value.edgeLineWidth)
+        }
+        submenu.addItem(.separator())
+        option(
+            "Red edge line on new activity", #selector(toggleEdgeLineAlerts), "",
+            selected: value.edgeLineAlertsUnread)
+        submenu.items.last?.isEnabled = value.notificationMode != .off
+        let item = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        item.isEnabled = !recoveryMode
+        return item
+    }
+
     @objc private func changeBarEdge(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let edge = BarPreferences.BarEdge(rawValue: raw)
         else { return }
+        updatePreferences { $0.barEdge = edge }
+    }
+
+    @objc private func changeBarTint(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let tint = BarPreferences.BarTint(rawValue: raw)
+        else { return }
+        updatePreferences { $0.barTint = tint }
+    }
+
+    @objc private func changeEdgeLineWidth(_ sender: NSMenuItem) {
+        guard let width = (sender.representedObject as? NSNumber)?.doubleValue else { return }
+        updatePreferences { $0.edgeLineWidth = width }
+    }
+
+    @objc private func toggleEdgeLineAlerts() {
+        updatePreferences { $0.edgeLineAlertsUnread.toggle() }
+    }
+
+    /// Bar-initiated changes save directly; the Settings helper reloads on `preferencesApplied`.
+    private func updatePreferences(_ change: (inout BarPreferences) -> Void) {
         cancelHover()
         var value = features.preferences.value
-        value.barEdge = edge
+        change(&value)
         do {
             try features.preferences.save(value)
             render()

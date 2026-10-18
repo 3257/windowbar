@@ -33,6 +33,11 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     let notificationMode = NSPopUpButton()
     let pinnedSide = NSPopUpButton()
     let barEdge = NSPopUpButton()
+    let barTint = NSPopUpButton()
+    let edgeLineWidth = NSPopUpButton()
+    let edgeAlertToggle = NSButton(
+        checkboxWithTitle: "Turn the edge line red when new unread activity arrives while hidden",
+        target: nil, action: nil)
     let peekToggle = NSButton(
         checkboxWithTitle: "Peek at windows after hovering for 0.6 seconds", target: nil, action: nil)
     let pinnedTable = NSTableView()
@@ -71,6 +76,7 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         generalPage()
         behaviorPage()
         pinnedPage()
+        appearancePage()
         shortcutsPage()
         diagnosticsPage()
         tabs.selectTabViewItem(at: 0)
@@ -226,6 +232,29 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
             .textColor = .secondaryLabelColor
     }
 
+    private func appearancePage() {
+        let view = page("Appearance")
+        label("Bar tint", y: 351, in: view)
+        barTint.addItems(withTitles: ["Off — frosted glass (default)", "Light accent color", "Strong accent color"])
+        barTint.frame = NSRect(x: 220, y: 364, width: 310, height: 28)
+        view.addSubview(barTint)
+        label("Edge line width", y: 301, in: view)
+        edgeLineWidth.addItems(withTitles: BarPreferences.edgeLineWidths.map { "\(Int($0)) pt" })
+        edgeLineWidth.frame = NSRect(x: 220, y: 314, width: 310, height: 28)
+        view.addSubview(edgeLineWidth)
+        edgeAlertToggle.frame = NSRect(x: 20, y: 270, width: 520, height: 26)
+        view.addSubview(edgeAlertToggle)
+        for control in [barTint, edgeLineWidth, edgeAlertToggle] as [NSControl] {
+            control.target = self
+            control.action = #selector(changeAppearance)
+        }
+        label(
+            "Colors follow the accent color in System Settings → Appearance. "
+                + "The edge line shows while auto-hide hides the bar; it turns red until the bar shows again.",
+            y: 200, in: view
+        ).textColor = .secondaryLabelColor
+    }
+
     private func shortcutsPage() {
         let view = page("Shortcuts")
         shortcutsToggle.frame = NSRect(x: 20, y: 368, width: 420, height: 24)
@@ -263,6 +292,10 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
         let value = features.preferences.value
         pinnedSide.selectItem(at: value.pinnedSide == .right ? 0 : 1)
         barEdge.selectItem(at: BarPreferences.BarEdge.allCases.firstIndex(of: value.barEdge) ?? 0)
+        barTint.selectItem(at: BarPreferences.BarTint.allCases.firstIndex(of: value.barTint) ?? 0)
+        edgeLineWidth.selectItem(at: BarPreferences.edgeLineWidths.firstIndex(of: value.edgeLineWidth) ?? 1)
+        edgeAlertToggle.state = value.edgeLineAlertsUnread ? .on : .off
+        edgeAlertToggle.isEnabled = value.notificationMode != .off
         peekToggle.state = value.hoverPeekEnabled ? .on : .off
         notificationMode.selectItem(
             at: BarPreferences.NotificationMode.allCases.firstIndex(of: value.notificationMode) ?? 0)
@@ -381,6 +414,13 @@ final class SettingsWindowController: NSWindowController, NSTableViewDataSource,
     @objc func changePinnedSide() {
         var value = features.preferences.value
         value.pinnedSide = pinnedSide.indexOfSelectedItem == 1 ? .left : .right
+        do { try save(value) } catch { failed(error) }
+    }
+    @objc func changeAppearance() {
+        var value = features.preferences.value
+        value.barTint = BarPreferences.BarTint.allCases[max(0, barTint.indexOfSelectedItem)]
+        value.edgeLineWidth = BarPreferences.edgeLineWidths[max(0, edgeLineWidth.indexOfSelectedItem)]
+        value.edgeLineAlertsUnread = edgeAlertToggle.state == .on
         do { try save(value) } catch { failed(error) }
     }
     @objc func changeBarEdge() {

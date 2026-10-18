@@ -19,6 +19,7 @@ final class BarView: NSVisualEffectView {
     let permissionButton = NSButton(title: "Enable Accessibility", target: nil, action: nil)
     let message = NSTextField(labelWithString: "")
     private let divider = NSBox()
+    private let tint = NSView()
     private var buttons: [String: WindowButton] = [:]
     private var entries: [WindowEntry] = []
     private var launchers: [LauncherEntry] = []
@@ -49,6 +50,10 @@ final class BarView: NSVisualEffectView {
         wantsLayer = true
         layer?.cornerRadius = 16
         layer?.borderWidth = 1
+        tint.wantsLayer = true
+        tint.layer?.cornerRadius = 16
+        tint.autoresizingMask = [.width, .height]
+        addSubview(tint)
         divider.boxType = .separator
         addSubview(divider)
         updateAppearance()
@@ -94,7 +99,10 @@ final class BarView: NSVisualEffectView {
         preferences: BarPreferences = BarPreferences()
     ) {
         if self.preferences.groupingMode != preferences.groupingMode { collapsedGroups.removeAll() }
+        let tintChanged = self.preferences.barTint != preferences.barTint
         self.preferences = preferences
+        // Re-resolving every update also follows a changed system accent color.
+        if tintChanged || preferences.barTint != .off { updateAppearance() }
         searchButton.isHidden = !preferences.searchEnabled
         self.entries = entries
         self.launchers = launchers
@@ -196,6 +204,7 @@ final class BarView: NSVisualEffectView {
 
     override func layout() {
         super.layout()
+        tint.frame = bounds
         let vertical = preferences.barEdge != .bottom
         scroll.vertical = vertical
         launchScroll.vertical = vertical
@@ -342,6 +351,14 @@ final class BarView: NSVisualEffectView {
     private func updateAppearance() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             layer?.borderColor = NSColor.separatorColor.cgColor
+            let strength: CGFloat
+            switch preferences.barTint {
+            case .off: strength = 0
+            case .light: strength = 0.18
+            case .strong: strength = 0.38
+            }
+            tint.layer?.backgroundColor =
+                strength > 0 ? NSColor.controlAccentColor.withAlphaComponent(strength).cgColor : nil
             if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
                 layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
                 blendingMode = .withinWindow

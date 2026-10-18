@@ -6,6 +6,7 @@ public struct BarPreferences: Equatable, Codable {
     public enum GroupingMode: String, CaseIterable, Codable { case none, app, appAndProfile }
     public enum PinnedSide: String, CaseIterable, Codable { case right, left }
     public enum BarEdge: String, CaseIterable, Codable { case bottom, left, right }
+    public enum BarTint: String, CaseIterable, Codable { case off, light, strong }
     public enum NotificationMode: String, CaseIterable, Codable { case badgesAndPulse, badgesOnly, off }
 
     public var windowScope: WindowScope = .allDisplays
@@ -17,6 +18,10 @@ public struct BarPreferences: Equatable, Codable {
     public var pinnedSide: PinnedSide = .left
     public var barEdge: BarEdge = .bottom
     public var sideCollapsed = false
+    public var barTint: BarTint = .off
+    public static let edgeLineWidths: [Double] = [4, 6, 8]
+    public var edgeLineWidth: Double = 6
+    public var edgeLineAlertsUnread = true
     public var hoverPeekEnabled = true
     public var notificationMode: NotificationMode = .badgesAndPulse
     public var autoHideEnabled = false
@@ -32,12 +37,13 @@ public struct BarPreferences: Equatable, Codable {
         shortcutsEnabled ? shortcuts.filter { searchEnabled || $0.action != .searchWindows } : []
     }
 
-    public enum ValidationError: Error { case invalidHideDelay }
+    public enum ValidationError: Error { case invalidHideDelay, invalidEdgeLineWidth }
     public func validate() throws {
         try ShortcutBinding.validate(shortcuts)
         guard autoHideDelay.isFinite, (0.2...3).contains(autoHideDelay) else {
             throw ValidationError.invalidHideDelay
         }
+        guard Self.edgeLineWidths.contains(edgeLineWidth) else { throw ValidationError.invalidEdgeLineWidth }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -45,6 +51,7 @@ public struct BarPreferences: Equatable, Codable {
         case searchEnabled, searchIncludesMinimized, groupingMode, hoverActionsEnabled, autoHideEnabled,
             autoHideDelay
         case pinnedSide, barEdge, sideCollapsed, hoverPeekEnabled, notificationMode
+        case barTint, edgeLineWidth, edgeLineAlertsUnread
     }
 
     public init(from decoder: Decoder) throws {
@@ -63,6 +70,10 @@ public struct BarPreferences: Equatable, Codable {
         pinnedSide = try values.decodeIfPresent(PinnedSide.self, forKey: .pinnedSide) ?? .left
         barEdge = try values.decodeIfPresent(BarEdge.self, forKey: .barEdge) ?? .bottom
         sideCollapsed = try values.decodeIfPresent(Bool.self, forKey: .sideCollapsed) ?? false
+        barTint = try values.decodeIfPresent(BarTint.self, forKey: .barTint) ?? .off
+        let lineWidth = try values.decodeIfPresent(Double.self, forKey: .edgeLineWidth) ?? 6
+        edgeLineWidth = Self.edgeLineWidths.contains(lineWidth) ? lineWidth : 6
+        edgeLineAlertsUnread = try values.decodeIfPresent(Bool.self, forKey: .edgeLineAlertsUnread) ?? true
         hoverPeekEnabled = try values.decodeIfPresent(Bool.self, forKey: .hoverPeekEnabled) ?? true
         notificationMode =
             try values.decodeIfPresent(NotificationMode.self, forKey: .notificationMode) ?? .badgesAndPulse

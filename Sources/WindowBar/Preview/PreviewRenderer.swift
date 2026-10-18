@@ -84,6 +84,12 @@ enum PreviewRenderer {
             view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
             try writeView(view, to: directory.appendingPathComponent("pinned-settings.png"))
         }
+        controller.tabs.selectTabViewItem(at: 3)
+        if let view = controller.tabs.selectedTabViewItem?.view {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1).cgColor
+            try writeView(view, to: directory.appendingPathComponent("appearance-settings.png"))
+        }
         let switcher = WindowSwitcherController(decorateWindow: false)
         defer { switcher.close() }
         switcher.update(entries: sampleWindows(), preferences: BarPreferences())
